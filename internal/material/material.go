@@ -16,24 +16,44 @@ import (
 	"samvideo/internal/utils"
 )
 
-// zoompanVariants 不同的 zoompan 效果变体，用于让每个片段的动画不同
-var zoompanVariants = []string{
-	// 0: 缓慢放大
-	"zoompan=z='min(zoom+0.001,1.1)':d=%d:s=%dx%d:fps=30",
-	// 1: 缓慢缩小
-	"zoompan=z='if(eq(on,0),1.1,max(1.1-0.001*on,1.0))':d=%d:s=%dx%d:fps=30",
-	// 2: 从左向右平移
-	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
-	// 3: 从右向左平移
-	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
-	// 4: 从上向下平移
-	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)+((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30",
-	// 5: 从下向上平移
-	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30",
-	// 6: 缓慢放大 + 右移
-	"zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
-	// 7: 缓慢放大 + 左移
-	"zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
+// zoompanVariants 不同的 zoompan 效果变体
+// 每个函数返回完整的 zoompan 滤镜字符串
+func zoompanVariant(idx, totalFrames, width, height int) string {
+	variants := []func(int, int, int) string{
+		// 0: 缓慢放大
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z='min(zoom+0.001,1.1)':d=%d:s=%dx%d:fps=30", tf, w, h)
+		},
+		// 1: 缓慢缩小
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z='if(eq(on,0),1.1,max(1.1-0.001*on,1.0))':d=%d:s=%dx%d:fps=30", tf, w, h)
+		},
+		// 2: 从左向右平移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z=1.0:x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+		// 3: 从右向左平移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z=1.0:x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+		// 4: 从上向下平移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)+((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+		// 5: 从下向上平移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+		// 6: 缓慢放大 + 右移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+		// 7: 缓慢放大 + 左移
+		func(tf, w, h int) string {
+			return fmt.Sprintf("zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30", tf, tf, w, h)
+		},
+	}
+	return variants[idx%len(variants)](totalFrames, width, height)
 }
 
 // GenerateImages 调用 OpenAI 兼容的文生图 API 生成图片，然后转为视频片段
@@ -63,10 +83,9 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 		utils.LogInfo("generating image %d/%d: term=%s, model=%s, size=%s", i+1, len(terms), term, model, size)
 
 		// 构建更丰富的 prompt，让每张图片风格不同
-		promptTmpl := cfg.OpenAIImagePromptTmpl
 		var prompt string
+		promptTmpl := cfg.OpenAIImagePromptTmpl
 		if promptTmpl == "" || promptTmpl == "{keyword}" {
-			// 默认 prompt 模板：加入风格变化，让每张图片视觉不同
 			prompt = buildDiversePrompt(term, i, len(terms))
 		} else {
 			prompt = strings.ReplaceAll(promptTmpl, "{keyword}", term)
@@ -95,7 +114,7 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 		}
 
 		// 每个片段使用不同的 zoompan 效果
-		variantIdx := i % len(zoompanVariants)
+		variantIdx := i % 8
 		if err := imageToVideoClip(imgPath, clipPath, clipDuration, params, variantIdx); err != nil {
 			utils.LogWarn("failed to convert image to video clip: %v, skipping", err)
 			continue
@@ -198,14 +217,7 @@ func imageToVideoClip(imgPath, outputPath string, duration int, params *models.V
 	width, height := getResolution(params.VideoAspect)
 
 	totalFrames := duration * 30
-	tmpl := zoompanVariants[variantIdx%len(zoompanVariants)]
-	var zoompan string
-	// 处理含 3 个 %d 的模板（平移类）和含 2 个 %d 的模板（缩放类）
-	if strings.Count(tmpl, "%d") == 3 {
-		zoompan = fmt.Sprintf(tmpl, totalFrames, totalFrames, width, height)
-	} else {
-		zoompan = fmt.Sprintf(tmpl, totalFrames, width, height)
-	}
+	zoompan := zoompanVariant(variantIdx, totalFrames, width, height)
 
 	args := []string{
 		"-y", "-loop", "1", "-i", imgPath,
