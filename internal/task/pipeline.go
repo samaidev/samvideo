@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
 
-	"samvideo/internal/bgm"
 	"samvideo/internal/config"
 	"samvideo/internal/llm"
 	"samvideo/internal/material"
@@ -18,6 +18,7 @@ import (
 	"samvideo/internal/tts"
 	"samvideo/internal/utils"
 	"samvideo/internal/video"
+	"samvideo/internal/bgm"
 )
 
 // Pipeline 任务编排器
@@ -28,6 +29,41 @@ type Pipeline struct {
 
 func NewPipeline(cfg *config.Config) *Pipeline {
 	return &Pipeline{cfg: cfg}
+}
+
+// CleanupStaleTasks 清理上次未完成的任务（服务重启后 goroutine 已死，标记为 failed）
+func CleanupStaleTasks(cfg *config.Config) {
+	tasksDir := filepath.Join(cfg.StorageDir, "tasks")
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return
+	}
+	cleaned := 0
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		taskFile := filepath.Join(tasksDir, entry.Name(), "task.json")
+		data, err := os.ReadFile(taskFile)
+		if err != nil {
+			continue
+		}
+		var result models.TaskResult
+		if err := json.Unmarshal(data, &result); err != nil {
+			continue
+		}
+		if result.State == models.TaskStateProcessing {
+			result.State = models.TaskStateFailed
+			result.Error = "服务重启，任务中断"
+			result.EndTime = time.Now()
+			updated, _ := json.MarshalIndent(result, "", "  ")
+			os.WriteFile(taskFile, updated, 0644)
+			cleaned++
+		}
+	}
+	if cleaned > 0 {
+		utils.LogInfo("cleaned up %d stale tasks (marked as failed)", cleaned)
+	}
 }
 
 func (p *Pipeline) RunTask(params *models.VideoParams) (*models.TaskResult, error) {
@@ -164,7 +200,15 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	}
 	save(90)
 
-	// Step 7: 完成
+	// Step 7: 生成缩略图
+	thumbPath := filepath.Join(taskDir, "thumbnail.jpg")
+	if err := GenerateThumbnail(finalPath, thumbPath); err != nil {
+		utils.LogWarn("thumbnail generation failed: %v", err)
+	} else {
+		result.ThumbnailURL = fmt.Sprintf("/api/v1/download/%s/thumbnail.jpg", taskID)
+	}
+
+	// Step 8: 完成
 	result.State = models.TaskStateComplete
 	result.Progress = 100
 	result.VideoPath = finalPath
@@ -244,6 +288,70 @@ func LoadTask(cfg *config.Config, taskID string) (*models.TaskResult, error) {
 	return &result, nil
 }
 
+// ListTasksOpts 带筛选和分页的任务列表查询
+type ListTasksOpts struct {
+	State    int  // 0=全部, 1=完成, 4=处理中, -1=失败
+	Page     int  // 从1开始
+	PageSize int  // 默认30
+}
+
+// ListTasksFiltered 带筛选和分页的任务列表
+func ListTasksFiltered(cfg *config.Config, opts ListTasksOpts) ([]*models.TaskResult, int, error) {
+	tasksDir := filepath.Join(cfg.StorageDir, "tasks")
+	entries, err := os.ReadDir(tasksDir)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	var tasks []*models.TaskResult
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			continue
+		}
+		taskFile := filepath.Join(tasksDir, entry.Name(), "task.json")
+		data, err := os.ReadFile(taskFile)
+		if err != nil {
+			continue
+		}
+		var result models.TaskResult
+		if err := json.Unmarshal(data, &result); err != nil {
+			continue
+		}
+
+		// 状态筛选
+		if opts.State != 0 && result.State != opts.State {
+			continue
+		}
+
+		tasks = append(tasks, &result)
+	}
+
+	// 按开始时间降序排列（最新的在前）
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].StartTime.After(tasks[j].StartTime)
+	})
+
+	total := len(tasks)
+
+	// 分页
+	if opts.PageSize <= 0 {
+		opts.PageSize = 30
+	}
+	if opts.Page <= 0 {
+		opts.Page = 1
+	}
+	start := (opts.Page - 1) * opts.PageSize
+	if start >= total {
+		return []*models.TaskResult{}, total, nil
+	}
+	end := start + opts.PageSize
+	if end > total {
+		end = total
+	}
+
+	return tasks[start:end], total, nil
+}
+
 func ListTasks(cfg *config.Config) ([]*models.TaskResult, error) {
 	tasksDir := filepath.Join(cfg.StorageDir, "tasks")
 	entries, err := os.ReadDir(tasksDir)
@@ -267,6 +375,12 @@ func ListTasks(cfg *config.Config) ([]*models.TaskResult, error) {
 		}
 		tasks = append(tasks, &result)
 	}
+
+	// 按开始时间降序排列
+	sort.Slice(tasks, func(i, j int) bool {
+		return tasks[i].StartTime.After(tasks[j].StartTime)
+	})
+
 	return tasks, nil
 }
 

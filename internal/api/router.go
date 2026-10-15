@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"samvideo/internal/config"
@@ -138,16 +139,69 @@ func (s *Server) generateScript(c *gin.Context) {
 	})
 }
 
+// listTasks 支持分页和状态筛选
+// GET /api/v1/tasks                          — 全部任务
+// GET /api/v1/tasks?state=1                  — 只看完成
+// GET /api/v1/tasks?state=4&page=1&size=30   — 处理中，第1页，每页30条
 func (s *Server) listTasks(c *gin.Context) {
-	tasks, err := task.ListTasks(s.cfg)
+	state := 0 // 0 = 全部
+	if s := c.Query("state"); s != "" {
+		state, _ = strconv.Atoi(s)
+	}
+	page := 1
+	if p := c.Query("page"); p != "" {
+		page, _ = strconv.Atoi(p)
+	}
+	pageSize := 30
+	if ps := c.Query("size"); ps != "" {
+		pageSize, _ = strconv.Atoi(ps)
+	}
+
+	tasks, total, err := task.ListTasksFiltered(s.cfg, task.ListTasksOpts{
+		State:    state,
+		Page:     page,
+		PageSize: pageSize,
+	})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// 计算各状态计数
+	allTasks, _ := task.ListTasks(s.cfg)
+	stateCounts := map[string]int{
+		"all":       len(allTasks),
+		"completed": 0,
+		"processing": 0,
+		"failed":    0,
+	}
+	for _, t := range allTasks {
+		switch t.State {
+		case models.TaskStateComplete:
+			stateCounts["completed"]++
+		case models.TaskStateProcessing:
+			stateCounts["processing"]++
+		case models.TaskStateFailed:
+			stateCounts["failed"]++
+		}
+	}
+
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+
 	c.JSON(http.StatusOK, gin.H{
 		"status":  200,
 		"message": "success",
 		"data":    tasks,
+		"pagination": gin.H{
+			"page":        page,
+			"page_size":   pageSize,
+			"total":       total,
+			"total_pages": totalPages,
+		},
+		"counts": stateCounts,
 	})
 }
 
@@ -189,6 +243,13 @@ func (s *Server) downloadFile(c *gin.Context) {
 	filePath := filepath.Join(s.cfg.StorageDir, "tasks", taskID, filename)
 	if _, err := os.Stat(filePath); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+
+	// 缩略图直接返回图片
+	if strings.HasSuffix(filename, ".jpg") || strings.HasSuffix(filename, ".png") {
+		c.Header("Content-Type", "image/jpeg")
+		c.File(filePath)
 		return
 	}
 

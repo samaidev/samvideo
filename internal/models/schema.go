@@ -32,7 +32,7 @@ type VideoParams struct {
 	VoiceMode   string  `json:"voice_mode,omitempty"` // tts, upload, none
 
 	SubtitleEnabled    bool   `json:"subtitle_enabled,omitempty"`
-	SubtitleProvider   string `json:"subtitle_provider,omitempty"`     // edge, whisper
+	SubtitleProvider   string `json:"subtitle_provider,omitempty"`      // edge, whisper
 	SubtitleDisplayMode string `json:"subtitle_display_mode,omitempty"` // sentence, word
 	SubtitleAnimation  string `json:"subtitle_animation,omitempty"`
 	FontName          string `json:"font_name,omitempty"`
@@ -51,16 +51,17 @@ type VideoParams struct {
 
 // TaskResult 任务结果
 type TaskResult struct {
-	TaskID      string       `json:"task_id"`
-	State       int          `json:"state"`
-	Progress    int          `json:"progress"`
-	Params      *VideoParams `json:"params,omitempty"`
-	Script      string       `json:"script,omitempty"`
-	SearchTerms []string     `json:"search_terms,omitempty"`
-	VideoPath   string       `json:"video_path,omitempty"`
-	VideoURL    string       `json:"video_url,omitempty"`
-	Error       string       `json:"error,omitempty"`
-	StartTime   time.Time    `json:"start_time"`
-	EndTime     time.Time    `json:"end_time,omitempty"`
-	Videos      []string     `json:"videos,omitempty"`
+	TaskID       string       `json:"task_id"`
+	State        int          `json:"state"`
+	Progress     int          `json:"progress"`
+	Params       *VideoParams `json:"params,omitempty"`
+	Script       string       `json:"script,omitempty"`
+	SearchTerms  []string     `json:"search_terms,omitempty"`
+	VideoPath    string       `json:"video_path,omitempty"`
+	VideoURL     string       `json:"video_url,omitempty"`
+	ThumbnailURL string       `json:"thumbnail_url,omitempty"`
+	Error        string       `json:"error,omitempty"`
+	StartTime    time.Time    `json:"start_time"`
+	EndTime      time.Time    `json:"end_time,omitempty"`
+	Videos       []string     `json:"videos,omitempty"`
 }
