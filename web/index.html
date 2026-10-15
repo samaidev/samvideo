@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>SamVideo - AI Video Generator</title>
+<link rel="icon" type="image/png" href="/web/logo.png">
 <style>
 :root {
   --bg: #faf6f0;
@@ -23,6 +24,10 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
 .container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+
+
+/* Logo */
+.header-logo { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; box-shadow: 0 2px 8px rgba(232, 96, 46, 0.2); }
 
 /* Header */
 .header { display: flex; align-items: baseline; gap: 0.65rem; margin-bottom: 1.5rem; }
@@ -117,7 +122,8 @@ select { cursor: pointer; }
 <div class="container">
   <!-- Header -->
   <div class="header">
-    <h1>🤖 SamVideo</h1>
+    <img src="/web/logo.png" alt="SamVideo" class="header-logo">
+    <h1>SamVideo</h1>
     <a href="https://github.com/samaidev/samvideo" target="_blank" class="version">v1.0</a>
   </div>
 
