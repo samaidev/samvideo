@@ -28,12 +28,10 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	}
 
 	// 变速：speed > 1 加速（素材变短），speed < 1 减速（素材变长）
-	// 读取素材时长需要按速度反推：source_duration = clipDuration * speed
 	clipSpeed := params.VideoClipSpeed
 	if clipSpeed <= 0 {
 		clipSpeed = 1.0
 	}
-	// 限制速度范围 0.5 ~ 2.0
 	if clipSpeed < 0.5 {
 		clipSpeed = 0.5
 	}
@@ -252,8 +250,16 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		if bgmVol <= 0 {
 			bgmVol = 0.2
 		}
-		// 旁白音量 + BGM 循环 + 混音
-		af := fmt.Sprintf("[1:a]volume=1.0[a1];[2:a]volume=%.2f,aloop=loop=-1:size=2e9[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]", bgmVol)
+		// 关键修复：
+		// 1. 用 weights=1 1 避免 amix 默认除以输入数（否则 BGM 实际音量 = bgmVol / 2）
+		// 2. BGM 先做 volume 再 aloop，确保循环后音量一致
+		// 3. 旁白保持原音量 1.0
+		af := fmt.Sprintf(
+			"[1:a]volume=1.0[a1];"+
+				"[2:a]aloop=loop=-1:size=2e9,volume=%.2f[a2];"+
+				"[a1][a2]amix=inputs=2:duration=first:dropout_transition=0:weights=1 1[aout]",
+			bgmVol,
+		)
 		args = append(args, "-filter_complex", af, "-map", "0:v", "-map", "[aout]")
 	} else {
 		args = append(args, "-map", "0:v", "-map", "1:a")

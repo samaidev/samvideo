@@ -13,23 +13,38 @@ import (
 
 // GenerateScript 调用 LLM 生成视频脚本和搜索关键词
 func GenerateScript(subject string, cfg *config.Config) (string, []string, error) {
+	return GenerateScriptWithPrompt(subject, "", 8, cfg)
+}
+
+// GenerateScriptWithPrompt 使用自定义提示词生成脚本
+func GenerateScriptWithPrompt(subject, scriptPrompt string, imageCount int, cfg *config.Config) (string, []string, error) {
 	utils.LogInfo("generating script for subject: %s", subject)
 
-	prompt := fmt.Sprintf(`你是一个专业的短视频脚本撰写人。请根据主题"%s"撰写一段约200字的短视频解说脚本。
+	if scriptPrompt == "" {
+		scriptPrompt = `你是一个专业的短视频脚本撰写人。请根据主题撰写一段约200字的短视频解说脚本。
 要求：
 1. 内容专业、信息密度高
 2. 语言口语化，适合语音朗读
 3. 不要包含任何标记符号（如#、*等）
-4. 直接输出脚本文本，不要解释
+4. 直接输出脚本文本，不要解释`
+	}
 
-同时，请生成8个英文关键词，用于搜索视频素材图片。要求：
+	if imageCount <= 0 {
+		imageCount = 8
+	}
+
+	prompt := fmt.Sprintf(`%s
+
+主题："%s"
+
+同时，请生成%d个英文关键词，用于搜索视频素材图片。要求：
 1. 每个关键词描述不同的视觉场景，避免重复或相似
 2. 关键词应具体、有画面感，例如"modern bank building exterior"而非仅"bank"
 3. 涵盖不同角度：建筑外观、室内场景、人物活动、数据图表、城市景观等
 4. 适合文生图模型理解
 
 请以JSON格式返回：
-{"script": "脚本内容", "search_terms": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5", "关键词6", "关键词7", "关键词8"]}`, subject)
+{"script": "脚本内容", "search_terms": ["关键词1", "关键词2", ...]}`, scriptPrompt, subject, imageCount)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
@@ -81,7 +96,6 @@ func GenerateTerms(script string, cfg *config.Config) ([]string, error) {
 
 	var terms []string
 	if err := json.Unmarshal([]byte(resp), &terms); err != nil {
-		// 降级：按行解析
 		for _, line := range strings.Split(resp, "\n") {
 			line = strings.TrimSpace(line)
 			line = strings.Trim(line, "0123456789.-) \"'")

@@ -10,6 +10,7 @@ import (
 	"samvideo/internal/config"
 	"samvideo/internal/models"
 	"samvideo/internal/task"
+	"samvideo/internal/template"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -39,6 +40,7 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.DELETE("/tasks/:task_id", s.deleteTask)
 		v1.GET("/download/:task_id/:filename", s.downloadFile)
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
+		v1.GET("/templates", s.listTemplates)
 	}
 }
 
@@ -54,15 +56,21 @@ func (s *Server) createVideo(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
-	if params.VideoAspect == "" {
-		params.VideoAspect = "16:9"
+	// 如果用户指定了模板 ID，直接使用
+	tmplID := c.Query("template_id")
+	if tmplID != "" {
+		for i := range template.BuiltinTemplates {
+			if template.BuiltinTemplates[i].ID == tmplID {
+				tmpl := &template.BuiltinTemplates[i]
+				template.ApplyTemplate(tmpl, &params)
+				break
+			}
+		}
 	}
+
+	// 设置默认值（仅当模板没有覆盖时）
 	if params.VideoSource == "" {
 		params.VideoSource = s.cfg.VideoSource
-	}
-	if params.VoiceName == "" {
-		params.VoiceName = "zh-CN-YunxiNeural"
 	}
 	if params.VoiceRate == 0 {
 		params.VoiceRate = 1.0
@@ -86,6 +94,9 @@ func (s *Server) createVideo(c *gin.Context) {
 		params.SubtitleProvider = s.cfg.SubtitleProvider
 	}
 
+	// 注意：如果用户没有指定 video_aspect，pipeline 会自动分类选择模板
+	// 如果用户指定了 video_aspect，则跳过自动分类，使用用户指定的值
+
 	taskID := uuid.NewString()
 
 	go func() {
@@ -102,7 +113,15 @@ func (s *Server) createVideo(c *gin.Context) {
 	})
 }
 
-// generateScript 仅生成脚本
+// listTemplates 列出所有可用模板
+func (s *Server) listTemplates(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{
+		"status":  200,
+		"message": "success",
+		"data":    template.BuiltinTemplates,
+	})
+}
+
 func (s *Server) generateScript(c *gin.Context) {
 	var req struct {
 		VideoSubject string `json:"video_subject"`
@@ -119,7 +138,6 @@ func (s *Server) generateScript(c *gin.Context) {
 	})
 }
 
-// listTasks 列出所有任务
 func (s *Server) listTasks(c *gin.Context) {
 	tasks, err := task.ListTasks(s.cfg)
 	if err != nil {
@@ -133,7 +151,6 @@ func (s *Server) listTasks(c *gin.Context) {
 	})
 }
 
-// getTask 查询任务状态
 func (s *Server) getTask(c *gin.Context) {
 	taskID := c.Param("task_id")
 	result, err := task.LoadTask(s.cfg, taskID)
@@ -148,7 +165,6 @@ func (s *Server) getTask(c *gin.Context) {
 	})
 }
 
-// deleteTask 删除任务
 func (s *Server) deleteTask(c *gin.Context) {
 	taskID := c.Param("task_id")
 	if err := task.DeleteTask(s.cfg, taskID); err != nil {
@@ -161,7 +177,6 @@ func (s *Server) deleteTask(c *gin.Context) {
 	})
 }
 
-// downloadFile 下载文件
 func (s *Server) downloadFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
@@ -181,7 +196,6 @@ func (s *Server) downloadFile(c *gin.Context) {
 	c.File(filePath)
 }
 
-// streamFile 流式播放
 func (s *Server) streamFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
