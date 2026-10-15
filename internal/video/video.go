@@ -27,20 +27,41 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 		clipDuration = 15
 	}
 
-	totalNeeded := int(audioDuration/float64(clipDuration)) + 1
-	utils.LogInfo("clips: %d source, need %d clips for %.1fs audio (clip dur=%ds)", len(clipPaths), totalNeeded, audioDuration, clipDuration)
+	// 变速：speed > 1 加速（素材变短），speed < 1 减速（素材变长）
+	// 读取素材时长需要按速度反推：source_duration = clipDuration * speed
+	clipSpeed := params.VideoClipSpeed
+	if clipSpeed <= 0 {
+		clipSpeed = 1.0
+	}
+	// 限制速度范围 0.5 ~ 2.0
+	if clipSpeed < 0.5 {
+		clipSpeed = 0.5
+	}
+	if clipSpeed > 2.0 {
+		clipSpeed = 2.0
+	}
+
+	// 变速后每个片段的实际输出时长
+	effectiveClipDuration := float64(clipDuration)
+	if clipSpeed != 1.0 {
+		effectiveClipDuration = float64(clipDuration) / clipSpeed
+	}
+
+	totalNeeded := int(audioDuration/effectiveClipDuration) + 1
+	utils.LogInfo("clips: %d source, need %d clips for %.1fs audio (clip dur=%ds, speed=%.2f, effective=%.1fs)",
+		len(clipPaths), totalNeeded, audioDuration, clipDuration, clipSpeed, effectiveClipDuration)
 
 	taskDir := filepath.Dir(outputPath)
 	processedClips := []string{}
 	for i, clip := range clipPaths {
 		processed := filepath.Join(taskDir, fmt.Sprintf("processed_%03d.mp4", i))
-		err := processOneClip(clip, processed, width, height, clipDuration, params, i)
+		err := processOneClip(clip, processed, width, height, clipDuration, params, i, clipSpeed)
 		if err != nil {
 			utils.LogWarn("failed to process clip %d (%s): %v, skipping", i, clip, err)
 			continue
 		}
 		processedClips = append(processedClips, processed)
-		utils.LogInfo("processed clip %d: %s -> %s", i, clip, processed)
+		utils.LogInfo("processed clip %d: %s -> %s (speed=%.2f)", i, clip, processed, clipSpeed)
 	}
 
 	if len(processedClips) == 0 {
@@ -56,8 +77,8 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	return concatClips(allClips, outputPath)
 }
 
-// processOneClip 处理单个片段：resize + 裁剪到指定时长 + 添加转场效果
-func processOneClip(input, output string, width, height, duration int, params *models.VideoParams, clipIndex int) error {
+// processOneClip 处理单个片段：resize + 裁剪到指定时长 + 添加转场效果 + 变速
+func processOneClip(input, output string, width, height, duration int, params *models.VideoParams, clipIndex int, speed float64) error {
 	fitMode := params.VideoFitMode
 	if fitMode == "" {
 		fitMode = "cover"
@@ -72,21 +93,30 @@ func processOneClip(input, output string, width, height, duration int, params *m
 			width, height, width, height, width, height)
 	}
 
-	// 获取转场模式
+	// 变速：setpts=PTS/speed 加速，setpts=PTS*speed 减速
+	if speed != 1.0 {
+		vf = vf + fmt.Sprintf(",setpts=PTS/%.4f", speed)
+	}
+
+	// 转场效果
 	transitionMode := params.VideoTransitionMode
 	if transitionMode == "" {
 		transitionMode = "shuffle"
 	}
-
-	// 为每个片段选择不同的转场效果
 	transition := selectTransition(transitionMode, clipIndex)
 	if transition != "" {
 		vf = vf + "," + transition
 	}
 
+	// 变速后输出时长 = 原时长 / speed
+	outputDuration := float64(duration)
+	if speed != 1.0 {
+		outputDuration = float64(duration) / speed
+	}
+
 	args := []string{
 		"-y", "-i", input,
-		"-t", fmt.Sprintf("%d", duration),
+		"-t", fmt.Sprintf("%.3f", outputDuration),
 		"-vf", vf,
 		"-r", "30",
 		"-c:v", "libx264", "-preset", "fast", "-crf", "23",
@@ -105,25 +135,15 @@ func processOneClip(input, output string, width, height, duration int, params *m
 }
 
 // selectTransition 根据转场模式和片段索引选择转场效果
-// 返回 FFmpeg 滤镜片段（不含 -vf 前缀）
 func selectTransition(mode string, clipIndex int) string {
-	// 所有可用转场效果
 	transitions := []string{
-		// fade in from black
 		"fade=t=in:st=0:d=0.5",
-		// fade out to black
 		"fade=t=out:st=4.5:d=0.5",
-		// fade in + fade out
 		"fade=t=in:st=0:d=0.4,fade=t=out:st=4.6:d=0.4",
-		// fade in from white
 		"fade=t=in:st=0:d=0.5:color=white",
-		// fade in from black, slower
 		"fade=t=in:st=0:d=0.8",
-		// fade out to white
 		"fade=t=out:st=4.2:d=0.8:color=white",
-		// fade in + fade out, white
 		"fade=t=in:st=0:d=0.3:color=white,fade=t=out:st=4.7:d=0.3:color=white",
-		// no transition
 		"",
 	}
 
@@ -135,10 +155,8 @@ func selectTransition(mode string, clipIndex int) string {
 	case "fade_out":
 		return "fade=t=out:st=4.5:d=0.5"
 	case "shuffle":
-		// 随机选择不同的转场效果
 		return transitions[clipIndex%len(transitions)]
 	default:
-		// 尝试匹配已知模式，否则用 shuffle
 		return transitions[clipIndex%len(transitions)]
 	}
 }
@@ -193,17 +211,21 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 
 	args := []string{"-y", "-i", videoPath, "-i", audioPath}
 
+	// 背景音乐
 	bgmPath := ""
 	hasBGM := false
 	if params.BGMType != "none" && params.BGMType != "" {
-		bgmPath = selectBGM(cfg)
+		bgmPath = selectBGM(cfg, params)
 		if bgmPath != "" {
 			args = append(args, "-i", bgmPath)
 			hasBGM = true
+			utils.LogInfo("BGM selected: %s", bgmPath)
+		} else {
+			utils.LogWarn("BGM requested (%s) but no BGM file found, continuing without BGM", params.BGMType)
 		}
 	}
 
-	// 检测 ffmpeg 是否支持字幕滤镜
+	// 字幕烧录
 	canBurnSubs := false
 	if params.SubtitleEnabled && assPath != "" {
 		if _, err := os.Stat(assPath); err == nil {
@@ -221,6 +243,7 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		args = append(args, "-vf", fmt.Sprintf("subtitles=%s", escapedAss))
 	}
 
+	// 音频处理
 	if hasBGM {
 		bgmVol := params.BGMVolume
 		if bgmVol <= 0 {
@@ -229,6 +252,7 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		if bgmVol <= 0 {
 			bgmVol = 0.2
 		}
+		// 旁白音量 + BGM 循环 + 混音
 		af := fmt.Sprintf("[1:a]volume=1.0[a1];[2:a]volume=%.2f,aloop=loop=-1:size=2e9[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]", bgmVol)
 		args = append(args, "-filter_complex", af, "-map", "0:v", "-map", "[aout]")
 	} else {
@@ -244,6 +268,7 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 	)
 
 	utils.LogInfo("running ffmpeg final compose...")
+	utils.LogInfo("ffmpeg args: %v", args)
 	cmd := exec.Command("ffmpeg", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -272,7 +297,15 @@ func getResolution(aspect string) (int, int) {
 }
 
 // selectBGM 选择背景音乐
-func selectBGM(cfg *config.Config) string {
+func selectBGM(cfg *config.Config, params *models.VideoParams) string {
+	// 优先使用用户指定的 BGM 文件
+	if params.BGMFile != "" {
+		if _, err := os.Stat(params.BGMFile); err == nil {
+			return params.BGMFile
+		}
+		utils.LogWarn("specified BGM file not found: %s", params.BGMFile)
+	}
+
 	songsDir := filepath.Join(cfg.ResourceDir, "songs")
 	entries, err := os.ReadDir(songsDir)
 	if err != nil || len(entries) == 0 {

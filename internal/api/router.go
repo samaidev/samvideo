@@ -70,6 +70,9 @@ func (s *Server) createVideo(c *gin.Context) {
 	if params.VideoClipDuration == 0 {
 		params.VideoClipDuration = 5
 	}
+	if params.VideoClipSpeed == 0 {
+		params.VideoClipSpeed = 1.0
+	}
 	if params.VideoTransitionMode == "" {
 		params.VideoTransitionMode = "shuffle"
 	}

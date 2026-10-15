@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"samvideo/internal/bgm"
 	"samvideo/internal/config"
 	"samvideo/internal/llm"
 	"samvideo/internal/material"
@@ -52,7 +53,6 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 
 	p.saveTask(taskDir, result)
 
-	// 每步完成后保存进度
 	save := func(progress int) {
 		result.Progress = progress
 		p.saveTask(taskDir, result)
@@ -72,7 +72,6 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	result.SearchTerms = terms
 	save(10)
 
-	// 保存脚本到文件
 	scriptData, _ := json.MarshalIndent(map[string]interface{}{
 		"script":       script,
 		"search_terms": terms,
@@ -130,6 +129,15 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		return result, err
 	}
 	save(70)
+
+	// Step 5.5: 如果需要 BGM，确保 BGM 文件已生成
+	if params.BGMType != "none" && params.BGMType != "" {
+		utils.LogInfo("step 5.5: ensuring BGM files...")
+		_, bgmErr := bgm.EnsureBGM(p.cfg)
+		if bgmErr != nil {
+			utils.LogWarn("BGM generation failed: %v, continuing without BGM", bgmErr)
+		}
+	}
 
 	// Step 6: 最终合成 (视频+音频+字幕+背景音乐)
 	utils.LogInfo("step 6: final composition...")
