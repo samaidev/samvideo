@@ -22,14 +22,15 @@
   --shadow: 0 2px 8px rgba(180, 160, 130, 0.12);
 }
 * { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; }
-.container { max-width: 1200px; margin: 0 auto; padding: 1.5rem; }
+html { height: auto; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); line-height: 1.6; min-height: 100vh; overflow-y: auto; }
+.container { max-width: 1200px; margin: 0 auto; padding: 1.5rem 1.5rem 3rem; }
 
 /* Logo */
 .header-logo { width: 48px; height: 48px; border-radius: 12px; object-fit: cover; box-shadow: 0 2px 8px rgba(232, 96, 46, 0.2); }
 
 /* Header */
-.header { display: flex; align-items: baseline; gap: 0.65rem; margin-bottom: 1.5rem; }
+.header { display: flex; align-items: center; gap: 0.65rem; margin-bottom: 1.5rem; }
 .header h1 { font-size: 2.5rem; font-weight: 700; color: var(--accent); }
 .header .version { font-size: 1rem; font-weight: 600; opacity: 0.72; text-decoration: none; color: var(--text-dim); }
 .header .version:hover { opacity: 1; text-decoration: underline; }
@@ -79,7 +80,7 @@ select { cursor: pointer; }
 .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* Status Filter Tabs */
-.status-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; }
+.status-tabs { display: flex; gap: 0.5rem; margin-bottom: 1rem; flex-wrap: wrap; }
 .status-tab { padding: 0.35rem 0.9rem; border: 1px solid var(--border); border-radius: 20px; font-size: 0.85rem; font-weight: 600; cursor: pointer; color: var(--text-dim); background: var(--card); transition: all 0.2s; }
 .status-tab:hover { border-color: var(--accent); color: var(--text); }
 .status-tab.active { background: var(--accent); color: white; border-color: var(--accent); }
@@ -87,9 +88,9 @@ select { cursor: pointer; }
 
 /* Task Cards Grid */
 .task-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 1rem; margin-bottom: 1.5rem; }
-.task-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); transition: transform 0.15s, box-shadow 0.15s; cursor: pointer; }
+.task-card { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); transition: transform 0.15s, box-shadow 0.15s; }
 .task-card:hover { transform: translateY(-2px); box-shadow: 0 6px 20px rgba(180, 160, 130, 0.2); }
-.task-card .thumb { position: relative; width: 100%; aspect-ratio: 16/9; background: var(--bg); overflow: hidden; }
+.task-card .thumb { position: relative; width: 100%; aspect-ratio: 16/9; background: var(--bg); overflow: hidden; cursor: pointer; }
 .task-card .thumb img { width: 100%; height: 100%; object-fit: cover; }
 .task-card .thumb .thumb-placeholder { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--text-dim); background: linear-gradient(135deg, #f5f0ea, #e8ddd0); }
 .task-card .thumb .play-overlay { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.35); display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
@@ -102,11 +103,10 @@ select { cursor: pointer; }
 .task-card .info { padding: 0.75rem; }
 .task-card .info .subject { font-size: 0.9rem; font-weight: 600; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-bottom: 0.25rem; }
 .task-card .info .meta { display: flex; justify-content: space-between; align-items: center; font-size: 0.75rem; color: var(--text-dim); }
-.task-card .info .meta .progress-text { font-weight: 600; }
 .task-card .info .actions { display: flex; gap: 0.25rem; margin-top: 0.5rem; }
 
 /* Pagination */
-.pagination { display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 1rem; }
+.pagination { display: flex; justify-content: center; align-items: center; gap: 0.5rem; margin-top: 1rem; flex-wrap: wrap; }
 .pagination button { padding: 0.35rem 0.8rem; border: 1px solid var(--border); border-radius: var(--radius); background: var(--card); color: var(--text); cursor: pointer; font-size: 0.85rem; font-weight: 600; transition: all 0.2s; }
 .pagination button:hover { border-color: var(--accent); color: var(--accent); }
 .pagination button:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -136,7 +136,7 @@ select { cursor: pointer; }
 /* Video Player Modal */
 .modal-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.7); display: none; align-items: center; justify-content: center; z-index: 1000; }
 .modal-overlay.show { display: flex; }
-.modal-content { background: var(--card); border-radius: var(--radius); padding: 1.5rem; max-width: 900px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
+.modal-content { background: var(--card); border-radius: var(--radius); padding: 1.5rem; max-width: 900px; width: 90%; max-height: 90vh; overflow-y: auto; box-shadow: 0 8px 32px rgba(0,0,0,0.3); }
 .modal-content video { width: 100%; border-radius: var(--radius); }
 .modal-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem; }
 .modal-header h3 { font-size: 1.1rem; color: var(--text); }
@@ -146,26 +146,54 @@ select { cursor: pointer; }
 /* Current Task Progress */
 .current-task-box { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); padding: 1rem; box-shadow: var(--shadow); margin-bottom: 1rem; }
 
+/* Material Library */
+.mat-section { margin-bottom: 2rem; }
+.mat-section h3 { font-size: 1.1rem; font-weight: 700; color: var(--text); margin-bottom: 0.75rem; display: flex; align-items: center; gap: 0.5rem; }
+.mat-section h3 .count { font-size: 0.8rem; color: var(--text-dim); font-weight: 400; }
+.mat-upload-area { border: 2px dashed var(--border); border-radius: var(--radius); padding: 1.5rem; text-align: center; margin-bottom: 1rem; cursor: pointer; transition: border-color 0.2s, background 0.2s; }
+.mat-upload-area:hover { border-color: var(--accent); background: var(--accent-light); }
+.mat-upload-area p { color: var(--text-dim); font-size: 0.9rem; }
+.mat-upload-area .icon { font-size: 2rem; margin-bottom: 0.5rem; }
+.mat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; }
+.mat-item { background: var(--card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; box-shadow: var(--shadow); position: relative; }
+.mat-item .preview { width: 100%; height: 120px; background: var(--bg); display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.mat-item .preview img { width: 100%; height: 100%; object-fit: cover; }
+.mat-item .preview .placeholder { font-size: 2rem; color: var(--text-dim); }
+.mat-item .preview video { width: 100%; height: 100%; object-fit: cover; }
+.mat-item .info { padding: 0.5rem; }
+.mat-item .info .name { font-size: 0.75rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.mat-item .info .size { font-size: 0.7rem; color: var(--text-dim); }
+.mat-item .del-btn { position: absolute; top: 4px; right: 4px; background: rgba(255,255,255,0.9); border: none; border-radius: 50%; width: 24px; height: 24px; cursor: pointer; font-size: 0.8rem; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
+.mat-item:hover .del-btn { opacity: 1; }
+.mat-item .del-btn:hover { background: var(--accent); color: white; }
+.mat-item .play-btn { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 40px; height: 40px; background: rgba(0,0,0,0.5); border-radius: 50%; display: flex; align-items: center; justify-content: center; opacity: 0; transition: opacity 0.2s; }
+.mat-item:hover .play-btn { opacity: 1; }
+.mat-item .play-btn svg { width: 20px; height: 20px; fill: white; }
+
+/* BGM player inline */
+.bgm-player { display: flex; align-items: center; gap: 0.5rem; padding: 0.5rem; background: var(--bg); border-radius: var(--radius); margin-top: 0.5rem; }
+.bgm-player audio { height: 32px; flex: 1; }
+
 @media (max-width: 768px) {
   .header h1 { font-size: 1.5rem; }
   .task-grid { grid-template-columns: 1fr; }
+  .mat-grid { grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); }
 }
 </style>
 </head>
 <body>
 <div class="container">
-  <!-- Header -->
   <div class="header">
     <img src="/web/logo.png" alt="SamVideo" class="header-logo">
     <h1>SamVideo</h1>
     <a href="https://github.com/samaidev/samvideo" target="_blank" class="version">v1.0</a>
   </div>
 
-  <!-- Tabs -->
   <div class="tabs">
     <div class="tab active" onclick="switchTab('create')">视频生成</div>
     <div class="tab" onclick="switchTab('templates')">模板列表</div>
     <div class="tab" onclick="switchTab('tasks')">任务历史</div>
+    <div class="tab" onclick="switchTab('materials')">素材库</div>
   </div>
 
   <!-- Create Tab -->
@@ -177,104 +205,32 @@ select { cursor: pointer; }
     <div class="settings-grid">
       <div class="settings-card">
         <h3>视频设置</h3>
-        <div class="form-group">
-          <label>宽高比</label>
-          <select id="video_aspect">
-            <option value="">自动（LLM分类）</option>
-            <option value="16:9">16:9 横屏</option>
-            <option value="9:16">9:16 竖屏</option>
-            <option value="1:1">1:1 正方形</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>片段时长 (秒)</label>
-          <input type="number" id="video_clip_duration" value="5" min="1" max="15">
-        </div>
-        <div class="form-group">
-          <label>播放速度</label>
-          <input type="number" id="video_clip_speed" value="1.0" min="0.5" max="2.0" step="0.1">
-        </div>
-        <div class="form-group">
-          <label>转场模式</label>
-          <select id="video_transition_mode">
-            <option value="">自动</option>
-            <option value="shuffle">随机</option>
-            <option value="fade_in">淡入</option>
-            <option value="fade_out">淡出</option>
-            <option value="none">无</option>
-          </select>
-        </div>
+        <div class="form-group"><label>宽高比</label><select id="video_aspect"><option value="">自动（LLM分类）</option><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 正方形</option></select></div>
+        <div class="form-group"><label>片段时长 (秒)</label><input type="number" id="video_clip_duration" value="5" min="1" max="15"></div>
+        <div class="form-group"><label>播放速度</label><input type="number" id="video_clip_speed" value="1.0" min="0.5" max="2.0" step="0.1"></div>
+        <div class="form-group"><label>转场模式</label><select id="video_transition_mode"><option value="">自动</option><option value="shuffle">随机</option><option value="fade_in">淡入</option><option value="fade_out">淡出</option><option value="none">无</option></select></div>
       </div>
       <div class="settings-card">
         <h3>配音设置</h3>
-        <div class="form-group">
-          <label>语音音色</label>
-          <select id="voice_name">
-            <option value="">自动</option>
-            <option value="zh-CN-YunxiNeural">云希（男声）</option>
-            <option value="zh-CN-YunyangNeural">云扬（男声）</option>
-            <option value="zh-CN-XiaoxiaoNeural">晓晓（女声）</option>
-            <option value="zh-CN-XiaoyiNeural">晓伊（女声）</option>
-            <option value="zh-CN-YunjianNeural">云健（男声）</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>语速</label>
-          <input type="number" id="voice_rate" value="1.0" min="0.5" max="2.0" step="0.1">
-        </div>
+        <div class="form-group"><label>语音音色</label><select id="voice_name"><option value="">自动</option><option value="zh-CN-YunxiNeural">云希（男声）</option><option value="zh-CN-YunyangNeural">云扬（男声）</option><option value="zh-CN-XiaoxiaoNeural">晓晓（女声）</option><option value="zh-CN-XiaoyiNeural">晓伊（女声）</option><option value="zh-CN-YunjianNeural">云健（男声）</option></select></div>
+        <div class="form-group"><label>语速</label><input type="number" id="voice_rate" value="1.0" min="0.5" max="2.0" step="0.1"></div>
       </div>
       <div class="settings-card">
         <h3>字幕设置</h3>
-        <div class="form-group">
-          <label>字幕</label>
-          <select id="subtitle_enabled">
-            <option value="true">开启</option>
-            <option value="false">关闭</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>字幕来源</label>
-          <select id="subtitle_provider">
-            <option value="edge">Edge (自动)</option>
-          </select>
-        </div>
+        <div class="form-group"><label>字幕</label><select id="subtitle_enabled"><option value="true">开启</option><option value="false">关闭</option></select></div>
+        <div class="form-group"><label>字幕来源</label><select id="subtitle_provider"><option value="edge">Edge (自动)</option></select></div>
       </div>
       <div class="settings-card">
         <h3>背景音乐</h3>
-        <div class="form-group">
-          <label>BGM 类型</label>
-          <select id="bgm_type">
-            <option value="random">随机选择</option>
-            <option value="none">无</option>
-          </select>
-        </div>
-        <div class="form-group">
-          <label>BGM 音量</label>
-          <input type="number" id="bgm_volume" value="0.55" min="0" max="1.0" step="0.05">
-        </div>
+        <div class="form-group"><label>BGM 类型</label><select id="bgm_type"><option value="random">随机选择</option><option value="none">无</option></select></div>
+        <div class="form-group"><label>BGM 音量</label><input type="number" id="bgm_volume" value="0.55" min="0" max="1.0" step="0.05"></div>
       </div>
     </div>
     <div class="advanced-toggle" onclick="toggleAdvanced()">▶ 高级设置</div>
     <div class="advanced-content" id="advanced_content">
       <div class="settings-grid">
-        <div class="settings-card">
-          <h3>素材设置</h3>
-          <div class="form-group">
-            <label>素材来源</label>
-            <select id="video_source">
-              <option value="">默认</option>
-              <option value="openai_image">AI文生图</option>
-              <option value="local">本地素材</option>
-            </select>
-          </div>
-        </div>
-        <div class="settings-card">
-          <h3>自定义脚本</h3>
-          <div class="form-group">
-            <label>视频脚本（可选，留空自动生成）</label>
-            <textarea id="video_script" rows="3" placeholder="输入自定义脚本，留空则由AI自动生成"></textarea>
-          </div>
-        </div>
+        <div class="settings-card"><h3>素材设置</h3><div class="form-group"><label>素材来源</label><select id="video_source"><option value="">默认</option><option value="openai_image">AI文生图</option><option value="local">本地素材</option></select></div></div>
+        <div class="settings-card"><h3>自定义脚本</h3><div class="form-group"><label>视频脚本（可选，留空自动生成）</label><textarea id="video_script" rows="3" placeholder="输入自定义脚本，留空则由AI自动生成"></textarea></div></div>
       </div>
     </div>
     <div class="btn-row" style="margin-top: 1rem;">
@@ -284,7 +240,7 @@ select { cursor: pointer; }
     <div id="current_task" style="display:none;">
       <div class="current-task-box">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.5rem;">
-          <span class="status processing" id="current_status" style="font-weight:600; color:var(--blue);">处理中</span>
+          <span id="current_status" style="font-weight:600; color:var(--blue);">处理中</span>
           <span id="current_progress" style="font-weight:600; color:var(--text-dim);">0%</span>
         </div>
         <div style="font-size:0.9rem; color:var(--text); margin-bottom:0.5rem;" id="current_subject"></div>
@@ -294,9 +250,7 @@ select { cursor: pointer; }
     <div class="video-preview" id="video_preview" style="display:none;">
       <h3 style="margin-bottom: 0.5rem;">视频预览</h3>
       <video id="preview_video" controls></video>
-      <div style="margin-top: 0.5rem;">
-        <a class="btn btn-secondary btn-sm" id="download_link" download>⬇ 下载视频</a>
-      </div>
+      <div style="margin-top: 0.5rem;"><a class="btn btn-secondary btn-sm" id="download_link" download>⬇ 下载视频</a></div>
     </div>
   </div>
 
@@ -308,17 +262,48 @@ select { cursor: pointer; }
 
   <!-- Tasks Tab -->
   <div id="tab-tasks" style="display:none;">
-    <!-- Status Filter -->
     <div class="status-tabs" id="status_tabs">
       <div class="status-tab active" onclick="filterTasks(0)">全部 <span class="count" id="count-all">0</span></div>
       <div class="status-tab" onclick="filterTasks(1)">已完成 <span class="count" id="count-completed">0</span></div>
       <div class="status-tab" onclick="filterTasks(4)">生成中 <span class="count" id="count-processing">0</span></div>
       <div class="status-tab" onclick="filterTasks(-1)">失败 <span class="count" id="count-failed">0</span></div>
     </div>
-    <!-- Task Cards -->
     <div class="task-grid" id="task_grid"></div>
-    <!-- Pagination -->
     <div class="pagination" id="pagination"></div>
+  </div>
+
+  <!-- Materials Tab -->
+  <div id="tab-materials" style="display:none;">
+    <!-- BGM -->
+    <div class="mat-section">
+      <h3>🎵 背景音乐 <span class="count" id="bgm-count">0 首</span></h3>
+      <div class="mat-upload-area" onclick="document.getElementById('bgm_upload_input').click()">
+        <div class="icon">🎵</div>
+        <p>点击或拖拽 MP3/WAV/M4A 文件到此处上传</p>
+        <input type="file" id="bgm_upload_input" accept=".mp3,.wav,.m4a,.ogg,.flac" multiple style="display:none;" onchange="uploadBGM(event)">
+      </div>
+      <div class="mat-grid" id="bgm_grid"></div>
+    </div>
+    <!-- Images -->
+    <div class="mat-section">
+      <h3>🖼️ 图片素材 <span class="count" id="img-count">0 张</span></h3>
+      <div class="mat-upload-area" onclick="document.getElementById('img_upload_input').click()">
+        <div class="icon">🖼️</div>
+        <p>点击或拖拽 PNG/JPG/GIF/WebP 图片到此处上传</p>
+        <input type="file" id="img_upload_input" accept=".png,.jpg,.jpeg,.gif,.webp,.bmp" multiple style="display:none;" onchange="uploadImages(event)">
+      </div>
+      <div class="mat-grid" id="img_grid"></div>
+    </div>
+    <!-- Videos -->
+    <div class="mat-section">
+      <h3>🎬 视频素材 <span class="count" id="vid-count">0 个</span></h3>
+      <div class="mat-upload-area" onclick="document.getElementById('vid_upload_input').click()">
+        <div class="icon">🎬</div>
+        <p>点击或拖拽 MP4/MOV/AVI/MKV 视频到此处上传</p>
+        <input type="file" id="vid_upload_input" accept=".mp4,.avi,.mov,.mkv,.webm,.flv" multiple style="display:none;" onchange="uploadVideos(event)">
+      </div>
+      <div class="mat-grid" id="vid_grid"></div>
+    </div>
   </div>
 </div>
 
@@ -347,7 +332,6 @@ let currentFilter = 0;
 let currentPage = 1;
 let modalTaskId = null;
 
-// Tab switching
 function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   event.target.classList.add('active');
@@ -355,9 +339,9 @@ function switchTab(tab) {
   document.getElementById('tab-' + tab).style.display = 'block';
   if (tab === 'templates') loadTemplates();
   if (tab === 'tasks') loadTasks();
+  if (tab === 'materials') loadAllMaterials();
 }
 
-// Advanced settings toggle
 function toggleAdvanced() {
   const content = document.getElementById('advanced_content');
   const toggle = event.target;
@@ -365,7 +349,6 @@ function toggleAdvanced() {
   toggle.textContent = content.classList.contains('show') ? '▼ 高级设置' : '▶ 高级设置';
 }
 
-// Toast
 function showToast(msg, type = '') {
   const toast = document.getElementById('toast');
   toast.textContent = msg;
@@ -373,19 +356,25 @@ function showToast(msg, type = '') {
   setTimeout(() => toast.classList.remove('show'), 3000);
 }
 
-// Generate video
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1048576) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/1048576).toFixed(1) + ' MB';
+}
+
+// ==================== Video Generation ====================
+
 async function generateVideo() {
   const subject = document.getElementById('video_subject').value.trim();
   if (!subject) { showToast('请输入视频主题', 'error'); return; }
-
   const params = { video_subject: subject };
   const fields = {
-    video_aspect: 'video_aspect', video_clip_duration: 'video_clip_duration',
-    video_clip_speed: 'video_clip_speed', video_transition_mode: 'video_transition_mode',
-    voice_name: 'voice_name', voice_rate: 'voice_rate',
-    subtitle_enabled: 'subtitle_enabled', subtitle_provider: 'subtitle_provider',
-    bgm_type: 'bgm_type', bgm_volume: 'bgm_volume',
-    video_source: 'video_source', video_script: 'video_script'
+    video_aspect:'video_aspect', video_clip_duration:'video_clip_duration',
+    video_clip_speed:'video_clip_speed', video_transition_mode:'video_transition_mode',
+    voice_name:'voice_name', voice_rate:'voice_rate',
+    subtitle_enabled:'subtitle_enabled', subtitle_provider:'subtitle_provider',
+    bgm_type:'bgm_type', bgm_volume:'bgm_volume',
+    video_source:'video_source', video_script:'video_script'
   };
   for (const [id, key] of Object.entries(fields)) {
     const el = document.getElementById(id);
@@ -396,18 +385,12 @@ async function generateVideo() {
     if (key === 'subtitle_enabled') val = val === 'true';
     params[key] = val;
   }
-
   let url = API + '/videos';
   if (selectedTemplate) url += '?template_id=' + selectedTemplate;
-
   document.getElementById('generate_btn').disabled = true;
   document.getElementById('generate_btn').textContent = '⏳ 生成中...';
-
   try {
-    const resp = await fetch(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params)
-    });
+    const resp = await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(params) });
     const data = await resp.json();
     if (data.status === 200) {
       const taskId = data.data.task_id;
@@ -419,10 +402,7 @@ async function generateVideo() {
       showToast('提交失败: ' + (data.error || '未知错误'), 'error');
       resetGenerateBtn();
     }
-  } catch (e) {
-    showToast('网络错误: ' + e.message, 'error');
-    resetGenerateBtn();
-  }
+  } catch (e) { showToast('网络错误: ' + e.message, 'error'); resetGenerateBtn(); }
 }
 
 function resetGenerateBtn() {
@@ -430,7 +410,6 @@ function resetGenerateBtn() {
   document.getElementById('generate_btn').textContent = '🎬 生成视频';
 }
 
-// Poll task status
 function pollTask(taskId) {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
@@ -439,17 +418,13 @@ function pollTask(taskId) {
       const data = await resp.json();
       const task = data.data;
       if (!task) return;
-      const progress = task.progress || 0;
-      document.getElementById('current_progress').textContent = progress + '%';
-      document.getElementById('current_progress_bar').style.width = progress + '%';
-
-      const stateMap = {1: '完成', '-1': '失败', 4: '处理中'};
-      const stateText = stateMap[task.state] || '处理中';
+      document.getElementById('current_progress').textContent = (task.progress||0) + '%';
+      document.getElementById('current_progress_bar').style.width = (task.progress||0) + '%';
+      const stateMap = {1:'完成', '-1':'失败', 4:'处理中'};
       const statusEl = document.getElementById('current_status');
-      statusEl.textContent = stateText;
-      const colorMap = {1: 'var(--green)', '-1': 'var(--accent)', 4: 'var(--blue)'};
+      statusEl.textContent = stateMap[task.state] || '处理中';
+      const colorMap = {1:'var(--green)', '-1':'var(--accent)', 4:'var(--blue)'};
       statusEl.style.color = colorMap[task.state] || 'var(--blue)';
-
       if (task.state === 1) {
         clearInterval(pollTimer); pollTimer = null;
         resetGenerateBtn();
@@ -468,7 +443,8 @@ function pollTask(taskId) {
   }, 3000);
 }
 
-// Load templates
+// ==================== Templates ====================
+
 async function loadTemplates() {
   try {
     const resp = await fetch(API + '/templates');
@@ -479,57 +455,40 @@ async function loadTemplates() {
       const card = document.createElement('div');
       card.className = 'template-card' + (selectedTemplate === t.id ? ' selected' : '');
       card.onclick = () => { selectedTemplate = selectedTemplate === t.id ? '' : t.id; loadTemplates(); };
-      card.innerHTML = `
-        <h4>${t.name}</h4>
-        <p>${t.description}</p>
-        <div class="tags">
-          <span class="tag">${t.aspect}</span>
-          <span class="tag">${t.clip_duration}s</span>
-          <span class="tag">${t.clip_speed}x</span>
-          <span class="tag">${t.transition_mode}</span>
-          <span class="tag">BGM ${t.bgm_volume}</span>
-        </div>`;
+      card.innerHTML = `<h4>${t.name}</h4><p>${t.description}</p><div class="tags"><span class="tag">${t.aspect}</span><span class="tag">${t.clip_duration}s</span><span class="tag">${t.clip_speed}x</span><span class="tag">${t.transition_mode}</span><span class="tag">BGM ${t.bgm_volume}</span></div>`;
       grid.appendChild(card);
     });
   } catch (e) { showToast('加载模板失败', 'error'); }
 }
 
-// Filter tasks by state
+// ==================== Tasks ====================
+
 function filterTasks(state) {
-  currentFilter = state;
-  currentPage = 1;
+  currentFilter = state; currentPage = 1;
   document.querySelectorAll('.status-tab').forEach(t => t.classList.remove('active'));
   event.target.closest('.status-tab').classList.add('active');
   loadTasks();
 }
 
-// Load tasks with pagination
 async function loadTasks() {
   try {
     let url = API + '/tasks?page=' + currentPage + '&size=30';
     if (currentFilter !== 0) url += '&state=' + currentFilter;
-
     const resp = await fetch(url);
     const data = await resp.json();
-
-    // Update counts
     const counts = data.counts || {};
     document.getElementById('count-all').textContent = counts.all || 0;
     document.getElementById('count-completed').textContent = counts.completed || 0;
     document.getElementById('count-processing').textContent = counts.processing || 0;
     document.getElementById('count-failed').textContent = counts.failed || 0;
-
     const tasks = data.data || [];
     const grid = document.getElementById('task_grid');
     grid.innerHTML = '';
-
     if (tasks.length === 0) {
       grid.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:3rem;grid-column:1/-1;">暂无任务</p>';
     }
-
-    const stateMap = {1: '完成', '-1': '失败', 4: '处理中'};
-    const stateClass = {1: 'complete', '-1': 'failed', 4: 'processing'};
-
+    const stateMap = {1:'完成', '-1':'失败', 4:'处理中'};
+    const stateClass = {1:'complete', '-1':'failed', 4:'processing'};
     tasks.forEach(t => {
       const card = document.createElement('div');
       card.className = 'task-card';
@@ -537,71 +496,42 @@ async function loadTasks() {
       const time = t.start_time ? new Date(t.start_time).toLocaleString('zh-CN') : '-';
       const thumb = t.thumbnail_url ? `<img src="${t.thumbnail_url}" alt="thumbnail">` : `<div class="thumb-placeholder">🎬</div>`;
       const videoUrl = t.video_url || '';
-      const playOverlay = videoUrl ? `<div class="play-overlay" onclick="playVideo('${t.task_id}','${subject.replace(/'/g,"\\'")}','${videoUrl}')"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>` : '';
-
-      card.innerHTML = `
-        <div class="thumb">
-          ${thumb}
-          ${playOverlay}
-          <span class="badge ${stateClass[t.state] || 'processing'}">${stateMap[t.state] || '未知'}</span>
-        </div>
-        <div class="info">
-          <div class="subject">${subject}</div>
-          <div class="meta">
-            <span class="progress-text">${t.progress || 0}%</span>
-            <span>${time}</span>
-          </div>
-          <div class="actions">
-            ${videoUrl ? `<button class="btn btn-secondary btn-sm" onclick="playVideo('${t.task_id}','${subject.replace(/'/g,"\\'")}','${videoUrl}')">▶ 播放</button>` : ''}
-            <button class="btn btn-secondary btn-sm" onclick="deleteTaskCard('${t.task_id}')">🗑 删除</button>
-          </div>
-        </div>`;
+      const safeSubject = subject.replace(/'/g, "\\'");
+      const playOverlay = videoUrl ? `<div class="play-overlay" onclick="playVideo('${t.task_id}','${safeSubject}','${videoUrl}')"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>` : '';
+      card.innerHTML = `<div class="thumb" onclick="${videoUrl ? `playVideo('${t.task_id}','${safeSubject}','${videoUrl}')` : ''}">${thumb}${playOverlay}<span class="badge ${stateClass[t.state]||'processing'}">${stateMap[t.state]||'未知'}</span></div><div class="info"><div class="subject">${subject}</div><div class="meta"><span>${t.progress||0}%</span><span>${time}</span></div><div class="actions">${videoUrl ? `<button class="btn btn-secondary btn-sm" onclick="playVideo('${t.task_id}','${safeSubject}','${videoUrl}')">▶ 播放</button>` : ''}<button class="btn btn-secondary btn-sm" onclick="deleteTaskCard('${t.task_id}')">🗑 删除</button></div></div>`;
       grid.appendChild(card);
     });
-
-    // Pagination
     const pg = data.pagination || {};
     const totalPages = pg.total_pages || 1;
     const total = pg.total || 0;
     const pgEl = document.getElementById('pagination');
     pgEl.innerHTML = '';
-
     if (totalPages > 1) {
       const prev = document.createElement('button');
-      prev.textContent = '‹ 上一页';
-      prev.disabled = currentPage <= 1;
+      prev.textContent = '‹ 上一页'; prev.disabled = currentPage <= 1;
       prev.onclick = () => { currentPage--; loadTasks(); };
       pgEl.appendChild(prev);
-
-      // Page numbers (show up to 7 pages)
-      let startPage = Math.max(1, currentPage - 3);
-      let endPage = Math.min(totalPages, startPage + 6);
-      if (endPage - startPage < 6) startPage = Math.max(1, endPage - 6);
-
-      for (let i = startPage; i <= endPage; i++) {
+      let sp = Math.max(1, currentPage - 3);
+      let ep = Math.min(totalPages, sp + 6);
+      if (ep - sp < 6) sp = Math.max(1, ep - 6);
+      for (let i = sp; i <= ep; i++) {
         const btn = document.createElement('button');
-        btn.textContent = i;
-        btn.className = i === currentPage ? 'active' : '';
+        btn.textContent = i; btn.className = i === currentPage ? 'active' : '';
         btn.onclick = () => { currentPage = i; loadTasks(); };
         pgEl.appendChild(btn);
       }
-
       const next = document.createElement('button');
-      next.textContent = '下一页 ›';
-      next.disabled = currentPage >= totalPages;
+      next.textContent = '下一页 ›'; next.disabled = currentPage >= totalPages;
       next.onclick = () => { currentPage++; loadTasks(); };
       pgEl.appendChild(next);
     }
-
     const info = document.createElement('span');
     info.className = 'page-info';
     info.textContent = `共 ${total} 条，第 ${currentPage}/${totalPages} 页`;
     pgEl.appendChild(info);
-
   } catch (e) { showToast('加载任务失败', 'error'); }
 }
 
-// Play video in modal
 function playVideo(taskId, subject, videoUrl) {
   modalTaskId = taskId;
   document.getElementById('modal_title').textContent = subject;
@@ -611,46 +541,161 @@ function playVideo(taskId, subject, videoUrl) {
 }
 
 function closeVideoModal() {
-  const video = document.getElementById('modal_video');
-  video.pause();
-  video.src = '';
+  const v = document.getElementById('modal_video');
+  v.pause(); v.src = '';
   document.getElementById('video_modal').classList.remove('show');
   modalTaskId = null;
 }
 
 function closeModal(event) {
-  if (event.target === document.getElementById('video_modal')) {
-    closeVideoModal();
-  }
+  if (event.target === document.getElementById('video_modal')) closeVideoModal();
 }
 
-// Delete task from card
 async function deleteTaskCard(taskId) {
   if (!confirm('确认删除此任务？')) return;
-  try {
-    await fetch(API + '/tasks/' + taskId, { method: 'DELETE' });
-    showToast('任务已删除', 'success');
-    loadTasks();
-  } catch (e) { showToast('删除失败', 'error'); }
+  try { await fetch(API + '/tasks/' + taskId, { method:'DELETE' }); showToast('任务已删除', 'success'); loadTasks(); }
+  catch (e) { showToast('删除失败', 'error'); }
 }
 
-// Delete task from modal
 async function deleteTaskFromModal() {
   if (!modalTaskId) return;
   if (!confirm('确认删除此任务？')) return;
-  try {
-    await fetch(API + '/tasks/' + modalTaskId, { method: 'DELETE' });
-    closeVideoModal();
-    showToast('任务已删除', 'success');
-    loadTasks();
-  } catch (e) { showToast('删除失败', 'error'); }
+  try { await fetch(API + '/tasks/' + modalTaskId, { method:'DELETE' }); closeVideoModal(); showToast('任务已删除', 'success'); loadTasks(); }
+  catch (e) { showToast('删除失败', 'error'); }
 }
 
-// Reset form
 function resetForm() {
   document.getElementById('video_subject').value = '';
   document.getElementById('video_script').value = '';
   selectedTemplate = '';
+}
+
+// ==================== Materials Library ====================
+
+async function loadAllMaterials() {
+  loadBGM(); loadImages(); loadVideos();
+}
+
+async function loadBGM() {
+  try {
+    const resp = await fetch(API + '/materials/bgm');
+    const data = await resp.json();
+    const items = data.data || [];
+    document.getElementById('bgm-count').textContent = items.length + ' 首';
+    const grid = document.getElementById('bgm_grid');
+    grid.innerHTML = '';
+    items.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'mat-item';
+      el.innerHTML = `<div class="preview"><div class="placeholder">🎵</div></div><div class="info"><div class="name" title="${item.name}">${item.name}</div><div class="size">${formatSize(item.size)}</div></div><button class="del-btn" onclick="deleteBGM('${item.name}')">✕</button><div class="bgm-player"><audio controls src="${item.url}"></audio></div>`;
+      grid.appendChild(el);
+    });
+    if (items.length === 0) grid.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:1rem;grid-column:1/-1;">暂无BGM素材，请上传</p>';
+  } catch (e) { showToast('加载BGM失败', 'error'); }
+}
+
+async function uploadBGM(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  const formData = new FormData();
+  for (const f of files) formData.append('file', f);
+  try {
+    const resp = await fetch(API + '/materials/bgm/upload', { method:'POST', body: formData });
+    const data = await resp.json();
+    showToast(`上传成功 ${data.data.count} 个文件`, 'success');
+    loadBGM();
+  } catch (e) { showToast('上传失败', 'error'); }
+  event.target.value = '';
+}
+
+async function deleteBGM(name) {
+  if (!confirm('确认删除 ' + name + '？')) return;
+  try { await fetch(API + '/materials/bgm/' + encodeURIComponent(name), { method:'DELETE' }); showToast('已删除', 'success'); loadBGM(); }
+  catch (e) { showToast('删除失败', 'error'); }
+}
+
+async function loadImages() {
+  try {
+    const resp = await fetch(API + '/materials/images');
+    const data = await resp.json();
+    const items = data.data || [];
+    document.getElementById('img-count').textContent = items.length + ' 张';
+    const grid = document.getElementById('img_grid');
+    grid.innerHTML = '';
+    items.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'mat-item';
+      el.innerHTML = `<div class="preview"><img src="${item.url}" alt="${item.name}"></div><div class="info"><div class="name" title="${item.name}">${item.name}</div><div class="size">${formatSize(item.size)}</div></div><button class="del-btn" onclick="deleteImage('${item.name}')">✕</button>`;
+      grid.appendChild(el);
+    });
+    if (items.length === 0) grid.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:1rem;grid-column:1/-1;">暂无图片素材，请上传</p>';
+  } catch (e) { showToast('加载图片失败', 'error'); }
+}
+
+async function uploadImages(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  const formData = new FormData();
+  for (const f of files) formData.append('files', f);
+  try {
+    const resp = await fetch(API + '/materials/images/upload', { method:'POST', body: formData });
+    const data = await resp.json();
+    showToast(`上传成功 ${data.data.count} 个文件`, 'success');
+    loadImages();
+  } catch (e) { showToast('上传失败', 'error'); }
+  event.target.value = '';
+}
+
+async function deleteImage(name) {
+  if (!confirm('确认删除 ' + name + '？')) return;
+  try { await fetch(API + '/materials/images/' + encodeURIComponent(name), { method:'DELETE' }); showToast('已删除', 'success'); loadImages(); }
+  catch (e) { showToast('删除失败', 'error'); }
+}
+
+async function loadVideos() {
+  try {
+    const resp = await fetch(API + '/materials/videos');
+    const data = await resp.json();
+    const items = data.data || [];
+    document.getElementById('vid-count').textContent = items.length + ' 个';
+    const grid = document.getElementById('vid_grid');
+    grid.innerHTML = '';
+    items.forEach(item => {
+      const el = document.createElement('div');
+      el.className = 'mat-item';
+      el.innerHTML = `<div class="preview"><video src="${item.url}" preload="metadata"></video></div><div class="info"><div class="name" title="${item.name}">${item.name}</div><div class="size">${formatSize(item.size)}</div></div><button class="del-btn" onclick="deleteVideo('${item.name}')">✕</button><div class="play-btn" onclick="playMaterialVideo('${item.url}','${item.name}')"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>`;
+      grid.appendChild(el);
+    });
+    if (items.length === 0) grid.innerHTML = '<p style="color:var(--text-dim);text-align:center;padding:1rem;grid-column:1/-1;">暂无视频素材，请上传</p>';
+  } catch (e) { showToast('加载视频失败', 'error'); }
+}
+
+async function uploadVideos(event) {
+  const files = event.target.files;
+  if (!files || files.length === 0) return;
+  const formData = new FormData();
+  for (const f of files) formData.append('files', f);
+  try {
+    const resp = await fetch(API + '/materials/videos/upload', { method:'POST', body: formData });
+    const data = await resp.json();
+    showToast(`上传成功 ${data.data.count} 个文件`, 'success');
+    loadVideos();
+  } catch (e) { showToast('上传失败', 'error'); }
+  event.target.value = '';
+}
+
+async function deleteVideo(name) {
+  if (!confirm('确认删除 ' + name + '？')) return;
+  try { await fetch(API + '/materials/videos/' + encodeURIComponent(name), { method:'DELETE' }); showToast('已删除', 'success'); loadVideos(); }
+  catch (e) { showToast('删除失败', 'error'); }
+}
+
+function playMaterialVideo(url, name) {
+  document.getElementById('modal_title').textContent = name;
+  document.getElementById('modal_video').src = url;
+  document.getElementById('modal_download').href = url;
+  document.getElementById('modal_delete_btn').style.display = 'none';
+  document.getElementById('video_modal').classList.add('show');
 }
 </script>
 </body>

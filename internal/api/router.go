@@ -2,9 +2,11 @@ package api
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -42,6 +44,22 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/download/:task_id/:filename", s.downloadFile)
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
 		v1.GET("/templates", s.listTemplates)
+
+		// 素材库 API
+		v1.GET("/materials/bgm", s.listBGM)
+		v1.POST("/materials/bgm/upload", s.uploadBGM)
+		v1.DELETE("/materials/bgm/:filename", s.deleteBGM)
+		v1.GET("/materials/bgm/file/:filename", s.serveBGMFile)
+
+		v1.GET("/materials/images", s.listImages)
+		v1.POST("/materials/images/upload", s.uploadImages)
+		v1.DELETE("/materials/images/:filename", s.deleteImage)
+		v1.GET("/materials/images/file/:filename", s.serveImageFile)
+
+		v1.GET("/materials/videos", s.listVideos)
+		v1.POST("/materials/videos/upload", s.uploadVideos)
+		v1.DELETE("/materials/videos/:filename", s.deleteVideo)
+		v1.GET("/materials/videos/file/:filename", s.serveVideoFile)
 	}
 }
 
@@ -57,7 +75,6 @@ func (s *Server) createVideo(c *gin.Context) {
 		return
 	}
 
-	// 如果用户指定了模板 ID，直接使用
 	tmplID := c.Query("template_id")
 	if tmplID != "" {
 		for i := range template.BuiltinTemplates {
@@ -69,7 +86,6 @@ func (s *Server) createVideo(c *gin.Context) {
 		}
 	}
 
-	// 设置默认值（仅当模板没有覆盖时）
 	if params.VideoSource == "" {
 		params.VideoSource = s.cfg.VideoSource
 	}
@@ -95,11 +111,7 @@ func (s *Server) createVideo(c *gin.Context) {
 		params.SubtitleProvider = s.cfg.SubtitleProvider
 	}
 
-	// 注意：如果用户没有指定 video_aspect，pipeline 会自动分类选择模板
-	// 如果用户指定了 video_aspect，则跳过自动分类，使用用户指定的值
-
 	taskID := uuid.NewString()
-
 	go func() {
 		s.pipeline.RunTaskWithID(taskID, &params)
 	}()
@@ -114,7 +126,6 @@ func (s *Server) createVideo(c *gin.Context) {
 	})
 }
 
-// listTemplates 列出所有可用模板
 func (s *Server) listTemplates(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"status":  200,
@@ -124,14 +135,6 @@ func (s *Server) listTemplates(c *gin.Context) {
 }
 
 func (s *Server) generateScript(c *gin.Context) {
-	var req struct {
-		VideoSubject string `json:"video_subject"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
 	c.JSON(http.StatusOK, gin.H{
 		"status":  200,
 		"message": "success",
@@ -140,11 +143,8 @@ func (s *Server) generateScript(c *gin.Context) {
 }
 
 // listTasks 支持分页和状态筛选
-// GET /api/v1/tasks                          — 全部任务
-// GET /api/v1/tasks?state=1                  — 只看完成
-// GET /api/v1/tasks?state=4&page=1&size=30   — 处理中，第1页，每页30条
 func (s *Server) listTasks(c *gin.Context) {
-	state := 0 // 0 = 全部
+	state := 0
 	if s := c.Query("state"); s != "" {
 		state, _ = strconv.Atoi(s)
 	}
@@ -167,13 +167,12 @@ func (s *Server) listTasks(c *gin.Context) {
 		return
 	}
 
-	// 计算各状态计数
 	allTasks, _ := task.ListTasks(s.cfg)
 	stateCounts := map[string]int{
-		"all":       len(allTasks),
-		"completed": 0,
+		"all":        len(allTasks),
+		"completed":  0,
 		"processing": 0,
-		"failed":    0,
+		"failed":     0,
 	}
 	for _, t := range allTasks {
 		switch t.State {
@@ -212,11 +211,7 @@ func (s *Server) getTask(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "task not found"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"status":  200,
-		"message": "success",
-		"data":    result,
-	})
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": result})
 }
 
 func (s *Server) deleteTask(c *gin.Context) {
@@ -225,34 +220,26 @@ func (s *Server) deleteTask(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{
-		"status":  200,
-		"message": "deleted",
-	})
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "deleted"})
 }
 
 func (s *Server) downloadFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
-
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
 		return
 	}
-
 	filePath := filepath.Join(s.cfg.StorageDir, "tasks", taskID, filename)
 	if _, err := os.Stat(filePath); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	}
-
-	// 缩略图直接返回图片
 	if strings.HasSuffix(filename, ".jpg") || strings.HasSuffix(filename, ".png") {
 		c.Header("Content-Type", "image/jpeg")
 		c.File(filePath)
 		return
 	}
-
 	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=%s", filename))
 	c.File(filePath)
 }
@@ -260,18 +247,226 @@ func (s *Server) downloadFile(c *gin.Context) {
 func (s *Server) streamFile(c *gin.Context) {
 	taskID := c.Param("task_id")
 	filename := c.Param("filename")
-
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
 		return
 	}
-
 	filePath := filepath.Join(s.cfg.StorageDir, "tasks", taskID, filename)
 	if _, err := os.Stat(filePath); err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
 		return
 	}
-
 	c.Header("Content-Type", "video/mp4")
 	c.File(filePath)
 }
+
+// ==================== 素材库 API ====================
+
+type MaterialItem struct {
+	Name string `json:"name"`
+	Size int64  `json:"size"`
+	URL  string `json:"url"`
+}
+
+func (s *Server) listBGM(c *gin.Context) {
+	bgmDir := filepath.Join(s.cfg.ResourceDir, "songs", "downloaded")
+	os.MkdirAll(bgmDir, 0755)
+	items := scanDir(bgmDir, isAudioFile, "/api/v1/materials/bgm/file/%s")
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
+}
+
+func (s *Server) uploadBGM(c *gin.Context) {
+	bgmDir := filepath.Join(s.cfg.ResourceDir, "songs", "downloaded")
+	os.MkdirAll(bgmDir, 0755)
+	uploaded, err := saveUploads(c, bgmDir, "file", isAudioFile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
+}
+
+func (s *Server) deleteBGM(c *gin.Context) {
+	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "songs", "downloaded"))
+}
+
+func (s *Server) serveBGMFile(c *gin.Context) {
+	filename := c.Param("filename")
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+	filePath := filepath.Join(s.cfg.ResourceDir, "songs", "downloaded", filename)
+	if _, err := os.Stat(filePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	c.Header("Content-Type", "audio/mpeg")
+	c.File(filePath)
+}
+
+func (s *Server) listImages(c *gin.Context) {
+	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
+	os.MkdirAll(imgDir, 0755)
+	items := scanDir(imgDir, isImageFile, "/api/v1/materials/images/file/%s")
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
+}
+
+func (s *Server) uploadImages(c *gin.Context) {
+	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
+	os.MkdirAll(imgDir, 0755)
+	uploaded, err := saveUploads(c, imgDir, "files", isImageFile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
+}
+
+func (s *Server) deleteImage(c *gin.Context) {
+	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "images"))
+}
+
+func (s *Server) serveImageFile(c *gin.Context) {
+	filename := c.Param("filename")
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+	filePath := filepath.Join(s.cfg.ResourceDir, "images", filename)
+	if _, err := os.Stat(filePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png":
+		c.Header("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		c.Header("Content-Type", "image/jpeg")
+	case ".gif":
+		c.Header("Content-Type", "image/gif")
+	case ".webp":
+		c.Header("Content-Type", "image/webp")
+	}
+	c.File(filePath)
+}
+
+func (s *Server) listVideos(c *gin.Context) {
+	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
+	os.MkdirAll(vidDir, 0755)
+	items := scanDir(vidDir, isVideoFile, "/api/v1/materials/videos/file/%s")
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
+}
+
+func (s *Server) uploadVideos(c *gin.Context) {
+	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
+	os.MkdirAll(vidDir, 0755)
+	uploaded, err := saveUploads(c, vidDir, "files", isVideoFile)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
+}
+
+func (s *Server) deleteVideo(c *gin.Context) {
+	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "videos"))
+}
+
+func (s *Server) serveVideoFile(c *gin.Context) {
+	filename := c.Param("filename")
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+	filePath := filepath.Join(s.cfg.ResourceDir, "videos", filename)
+	if _, err := os.Stat(filePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	c.Header("Content-Type", "video/mp4")
+	c.File(filePath)
+}
+
+// ==================== Helpers ====================
+
+func scanDir(dir string, filter func(string) bool, urlTmpl string) []MaterialItem {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return []MaterialItem{}
+	}
+	var items []MaterialItem
+	for _, e := range entries {
+		if e.IsDir() || !filter(e.Name()) {
+			continue
+		}
+		info, _ := e.Info()
+		items = append(items, MaterialItem{
+			Name: e.Name(),
+			Size: info.Size(),
+			URL:  fmt.Sprintf(urlTmpl, e.Name()),
+		})
+	}
+	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
+	return items
+}
+
+func saveUploads(c *gin.Context, dir, field string, filter func(string) bool) ([]string, error) {
+	form, err := c.MultipartForm()
+	if err != nil {
+		return nil, fmt.Errorf("no files uploaded")
+	}
+	files := form.File[field]
+	if len(files) == 0 {
+		// try "file" as fallback
+		files = form.File["file"]
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("no files found in field '%s' or 'file'", field)
+	}
+	var uploaded []string
+	for _, header := range files {
+		if !filter(header.Filename) {
+			continue
+		}
+		dst := filepath.Join(dir, header.Filename)
+		if err := c.SaveUploadedFile(header, dst); err != nil {
+			continue
+		}
+		uploaded = append(uploaded, header.Filename)
+	}
+	return uploaded, nil
+}
+
+func (s *Server) deleteMaterial(c *gin.Context, dir string) {
+	filename := c.Param("filename")
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+	filePath := filepath.Join(dir, filename)
+	if err := os.Remove(filePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "deleted"})
+}
+
+func isAudioFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".mp3" || ext == ".wav" || ext == ".m4a" || ext == ".ogg" || ext == ".flac"
+}
+
+func isImageFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp"
+}
+
+func isVideoFile(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".mp4" || ext == ".avi" || ext == ".mov" || ext == ".mkv" || ext == ".webm" || ext == ".flv"
+}
+
+// avoid unused import
+var _ = io.Copy
