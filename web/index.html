@@ -18,7 +18,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .header .version:hover{opacity:1;text-decoration:underline}
 .form-group{margin-bottom:1rem}
 .form-group label{display:block;font-size:.875rem;font-weight:600;margin-bottom:.35rem;color:var(--text)}
-textarea,input[type=text],input[type=number],input[type=password],select{width:100%;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s}
+textarea,input[type=text],input[type=number],input[type=password],input[type=url],select{width:100%;padding:.6rem .8rem;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);font-size:.9rem;outline:none;transition:border-color .2s,box-shadow .2s}
 textarea:focus,input:focus,select:focus{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
 textarea{resize:vertical;min-height:80px}
 select{cursor:pointer}
@@ -122,6 +122,32 @@ select{cursor:pointer}
 .config-test-result{padding:.75rem;border-radius:var(--radius);margin-top:.5rem;font-size:.85rem}
 .config-test-result.ok{background:#e8f5e9;border:1px solid var(--green);color:var(--green)}
 .config-test-result.fail{background:#fbe9e7;border:1px solid var(--accent);color:var(--accent)}
+/* DH toggle */
+.dh-toggle-box{background:var(--card);border:2px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:1rem;display:flex;align-items:center;gap:.75rem;cursor:pointer;transition:border-color .2s}
+.dh-toggle-box:hover{border-color:var(--accent)}
+.dh-toggle-box.active{border-color:var(--accent);background:var(--accent-light)}
+.dh-toggle-box .dh-icon{font-size:1.5rem}
+.dh-toggle-box .dh-label{font-weight:600;font-size:.95rem}
+.dh-toggle-box .dh-desc{font-size:.8rem;color:var(--text-dim)}
+.dh-toggle-box .dh-check{margin-left:auto;width:24px;height:24px;border-radius:50%;border:2px solid var(--border);display:flex;align-items:center;justify-content:center;transition:all .2s}
+.dh-toggle-box.active .dh-check{background:var(--accent);border-color:var(--accent);color:#fff}
+/* DH steps */
+.dh-steps{display:none;margin-bottom:1rem}
+.dh-steps.show{display:block}
+.dh-step{background:var(--card);border:1px solid var(--border);border-radius:var(--radius);padding:1rem;margin-bottom:.75rem;box-shadow:var(--shadow)}
+.dh-step h3{font-size:.9rem;font-weight:700;color:var(--accent);margin-bottom:.75rem;display:flex;align-items:center;gap:.5rem}
+.dh-step .step-num{background:var(--accent);color:#fff;width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:.75rem}
+.dh-portrait-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:.5rem;margin-top:.75rem}
+.dh-portrait-item{position:relative;cursor:pointer;border:2px solid var(--border);border-radius:var(--radius);overflow:hidden;transition:border-color .2s}
+.dh-portrait-item:hover{border-color:var(--accent)}
+.dh-portrait-item.selected{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-light)}
+.dh-portrait-item img{width:100%;aspect-ratio:1;object-fit:cover}
+.dh-portrait-item .del{position:absolute;top:2px;right:2px;background:rgba(255,255,255,.9);border:none;border-radius:50%;width:20px;height:20px;cursor:pointer;font-size:.7rem;display:flex;align-items:center;justify-content:center;opacity:0}
+.dh-portrait-item:hover .del{opacity:1}
+.config-check-list{font-size:.85rem;color:var(--text-dim);margin-top:.5rem}
+.config-check-list .check-item{padding:.2rem 0}
+.config-check-list .check-item.ok{color:var(--green)}
+.config-check-list .check-item.fail{color:var(--accent)}
 @media(max-width:768px){.header h1{font-size:1.5rem}.task-grid{grid-template-columns:1fr}.mat-grid{grid-template-columns:repeat(auto-fill,minmax(120px,1fr))}.config-row{grid-template-columns:1fr}}
 </style>
 </head>
@@ -133,11 +159,12 @@ select{cursor:pointer}
     <a href="https://github.com/samaidev/samvideo" target="_blank" class="version">v1.0</a>
   </div>
   <div class="tabs">
-    <div class="tab active" onclick="switchTab('create')">视频生成</div>
-    <div class="tab" onclick="switchTab('templates')">模板列表</div>
-    <div class="tab" onclick="switchTab('tasks')">任务历史</div>
-    <div class="tab" onclick="switchTab('materials')">素材库</div>
-    <div class="tab" onclick="switchTab('config')">LLM配置</div>
+    <div class="tab active" id="main-tab-create" onclick="switchTab('create')">视频生成</div>
+    <div class="tab" id="main-tab-templates" onclick="switchTab('templates')">模板列表</div>
+    <div class="tab" id="main-tab-tasks" onclick="switchTab('tasks')">任务历史</div>
+    <div class="tab" id="main-tab-anchors" onclick="switchTab('anchors')">数字主播</div>
+    <div class="tab" id="main-tab-materials" onclick="switchTab('materials')">素材库</div>
+    <div class="tab" id="main-tab-config" onclick="switchTab('config')">LLM配置</div>
   </div>
 
   <!-- Create Tab -->
@@ -192,7 +219,32 @@ select{cursor:pointer}
   </div>
 
   <!-- Templates Tab -->
-  <div id="tab-templates" style="display:none"><h3 style="margin-bottom:1rem">可用模板</h3><div class="template-grid" id="template_grid"></div></div>
+  <div id="tab-templates" style="display:none">
+    <div class="dh-toggle-box" id="dh_toggle" onclick="toggleDigitalHuman()">
+      <span class="dh-icon">🧑‍💼</span>
+      <div>
+        <div class="dh-label">启用数字人口播模式</div>
+        <div class="dh-desc">使用AI视频生成模型，让数字主播对着镜头口播</div>
+      </div>
+      <div class="dh-check" id="dh_check">✓</div>
+    </div>
+    <div class="dh-steps" id="dh_steps">
+      <div class="dh-step">
+        <h3><span class="step-num">1</span> 配置检查</h3>
+        <div class="config-check-list" id="dh_config_check"></div>
+      </div>
+      <div class="dh-step">
+        <h3><span class="step-num">2</span> 选择/上传主播头像</h3>
+        <div class="mat-upload-area" onclick="document.getElementById('dh_portrait_upload').click()" style="margin-top:.5rem">
+          <div class="icon">📷</div><p>点击上传主播头像照片</p>
+          <input type="file" id="dh_portrait_upload" accept="image/*" style="display:none" onchange="uploadDHPortrait(event)">
+        </div>
+        <div class="dh-portrait-grid" id="dh_portrait_grid"></div>
+      </div>
+    </div>
+    <h3 style="margin:1rem 0 .75rem">选择模板参数</h3>
+    <div class="template-grid" id="template_grid"></div>
+  </div>
 
   <!-- Tasks Tab -->
   <div id="tab-tasks" style="display:none">
@@ -206,6 +258,17 @@ select{cursor:pointer}
     <div class="pagination" id="pagination"></div>
   </div>
 
+  <!-- Digital Anchors Tab -->
+  <div id="tab-anchors" style="display:none">
+    <h3 style="margin-bottom:1rem">数字主播形象库</h3>
+    <div class="mat-upload-area" onclick="document.getElementById('anchor_upload').click()">
+      <div class="icon">📷</div><p>点击上传主播头像照片</p>
+      <input type="file" id="anchor_upload" accept="image/*" style="display:none" onchange="uploadDHPortrait(event)">
+    </div>
+    <div class="mat-grid" id="anchor_grid"></div>
+    <div class="pagination" id="anchor_pagination"></div>
+  </div>
+
   <!-- Materials Tab -->
   <div id="tab-materials" style="display:none">
     <div class="sub-tabs">
@@ -213,7 +276,6 @@ select{cursor:pointer}
       <div class="sub-tab" onclick="switchMatSub('images')">🖼️ 图片素材</div>
       <div class="sub-tab" onclick="switchMatSub('videos')">🎬 视频素材</div>
     </div>
-    <!-- BGM -->
     <div id="mat-bgm">
       <div class="mat-upload-area" onclick="document.getElementById('bgm_upload_input').click()">
         <div class="icon">🎵</div><p>点击上传 MP3/WAV/M4A 文件</p>
@@ -222,7 +284,6 @@ select{cursor:pointer}
       <div class="mat-grid" id="bgm_grid"></div>
       <div class="pagination" id="bgm_pagination"></div>
     </div>
-    <!-- Images -->
     <div id="mat-images" style="display:none">
       <div class="mat-upload-area" onclick="document.getElementById('img_upload_input').click()">
         <div class="icon">🖼️</div><p>点击上传 PNG/JPG/GIF/WebP 图片</p>
@@ -231,7 +292,6 @@ select{cursor:pointer}
       <div class="mat-grid" id="img_grid"></div>
       <div class="pagination" id="img_pagination"></div>
     </div>
-    <!-- Videos -->
     <div id="mat-videos" style="display:none">
       <div class="mat-upload-area" onclick="document.getElementById('vid_upload_input').click()">
         <div class="icon">🎬</div><p>点击上传 MP4/MOV/AVI 视频</p>
@@ -266,9 +326,16 @@ select{cursor:pointer}
         <div class="form-group"><label>图片尺寸</label><input type="text" id="cfg_image_size" placeholder="1280x720"></div>
         <div class="form-group"><label>图片 API Key</label><input type="password" id="cfg_image_api_key" placeholder="sk-..."></div>
       </div>
-      <div class="btn-row" style="margin-top:.5rem">
-        <button class="btn btn-primary btn-sm" onclick="saveConfig()">💾 保存配置</button>
+    </div>
+    <div class="config-card">
+      <h3>🎬 视频生成模型配置</h3>
+      <div class="config-row">
+        <div class="form-group"><label>视频 API Base URL</label><input type="text" id="cfg_video_api_base_url" placeholder="https://apishare.cc"></div>
+        <div class="form-group"><label>视频模型</label><input type="text" id="cfg_video_model" placeholder="Agnes/agnes-video-2.5-flash"></div>
+        <div class="form-group"><label>视频 API Key</label><input type="password" id="cfg_video_api_key" placeholder="aps-..."></div>
+        <div class="form-group"><label>公开访问URL (数字人需要)</label><input type="url" id="cfg_public_base_url" placeholder="https://your-public-domain.com"></div>
       </div>
+      <div class="btn-row" style="margin-top:.5rem"><button class="btn btn-primary btn-sm" onclick="saveConfig()">💾 保存配置</button></div>
     </div>
     <div class="config-card">
       <h3>⚙️ 视频生成配置</h3>
@@ -298,15 +365,17 @@ select{cursor:pointer}
 <script>
 const API=window.location.origin+'/api/v1';
 let selectedTemplate='',pollTimer=null,currentFilter=0,currentPage=1,modalTaskId=null;
-let matSubTab='bgm',bgmPage=1,imgPage=1,vidPage=1;
+let matSubTab='bgm',bgmPage=1,imgPage=1,vidPage=1,anchorPage=1;
+let dhEnabled=false,selectedPortrait='';
 
 function switchTab(tab){
   document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
-  event.target.classList.add('active');
+  document.getElementById('main-tab-'+tab).classList.add('active');
   document.querySelectorAll('[id^="tab-"]').forEach(d=>d.style.display='none');
   document.getElementById('tab-'+tab).style.display='block';
   if(tab==='templates')loadTemplates();
   if(tab==='tasks')loadTasks();
+  if(tab==='anchors')loadAnchors();
   if(tab==='materials')loadMatSub();
   if(tab==='config')loadConfig();
 }
@@ -323,6 +392,77 @@ function renderPagination(elId,page,totalPages,total,onPage){
   const info=document.createElement('span');info.className='page-info';info.textContent=`共 ${total} 条，第 ${page}/${totalPages} 页`;el.appendChild(info);
 }
 
+// Digital Human toggle
+function toggleDigitalHuman(){
+  dhEnabled=!dhEnabled;
+  const box=document.getElementById('dh_toggle');
+  const steps=document.getElementById('dh_steps');
+  if(dhEnabled){box.classList.add('active');steps.classList.add('show');checkDHConfig();loadDHPortraits()}
+  else{box.classList.remove('active');steps.classList.remove('show')}
+}
+async function checkDHConfig(){
+  const el=document.getElementById('dh_config_check');
+  el.innerHTML='检查中...';
+  try{
+    const r=await fetch(API+'/config');const d=await r.json();const c=d.data||{};
+    const checks=[
+      {name:'LLM 大模型',ok:c.llm_base_url&&c.llm_model&&c.llm_api_key_masked&&c.llm_api_key_masked!=='****'},
+      {name:'文生图模型',ok:c.image_base_url&&c.image_model&&c.image_api_key_masked&&c.image_api_key_masked!=='****'},
+      {name:'视频生成模型',ok:c.video_model&&c.video_api_key_masked&&c.video_api_key_masked!=='****'},
+      {name:'公开访问URL',ok:c.public_base_url&&c.public_base_url.length>4}
+    ];
+    el.innerHTML=checks.map(c=>`<div class="check-item ${c.ok?'ok':'fail'}">${c.ok?'✅':'❌'} ${c.name}${c.ok?'':' (未配置)'}</div>`).join('');
+    if(!checks.every(c=>c.ok)){
+      el.innerHTML+='<div style="margin-top:.5rem;color:var(--text-dim)">请在 LLM配置 Tab 中完成配置后继续</div>';
+    }
+  }catch(e){el.innerHTML='<div class="check-item fail">❌ 配置检查失败</div>'}
+}
+async function uploadDHPortrait(e){
+  const file=e.target.files[0];if(!file)return;
+  const fd=new FormData();fd.append('file',file);
+  try{
+    const r=await fetch(API+'/digital-human/portrait',{method:'POST',body:fd});
+    const d=await r.json();showToast('头像上传成功','success');
+    loadDHPortraits();loadAnchors();
+  }catch(e){showToast('上传失败','error')}
+  e.target.value='';
+}
+async function loadDHPortraits(){
+  try{
+    const r=await fetch(API+'/digital-human/portraits?page=1&size=100');
+    const d=await r.json();const items=d.data||[];
+    const g=document.getElementById('dh_portrait_grid');g.innerHTML='';
+    if(!items.length)g.innerHTML='<p style="color:var(--text-dim);font-size:.85rem">暂无头像，请上传</p>';
+    items.forEach(i=>{
+      const el=document.createElement('div');
+      el.className='dh-portrait-item'+(selectedPortrait===i.name?' selected':'');
+      el.onclick=()=>{selectedPortrait=selectedPortrait===i.name?'':i.name;loadDHPortraits()};
+      el.innerHTML=`<img src="${i.url}" alt="${i.name}"><button class="del" onclick="event.stopPropagation();deleteDHPortrait('${i.name}')">✕</button>`;
+      g.appendChild(el);
+    });
+  }catch(e){console.error(e)}
+}
+async function deleteDHPortrait(n){
+  if(!confirm('删除 '+n+'？'))return;
+  try{await fetch(API+'/digital-human/portrait/'+encodeURIComponent(n),{method:'DELETE'});showToast('已删除','success');loadDHPortraits();loadAnchors()}catch(e){showToast('删除失败','error')}
+}
+
+// Digital Anchors tab
+async function loadAnchors(){
+  try{
+    const r=await fetch(API+'/digital-human/portraits?page='+anchorPage+'&size=30');
+    const d=await r.json();const items=d.data||[];
+    const g=document.getElementById('anchor_grid');g.innerHTML='';
+    if(!items.length)g.innerHTML='<p style="color:var(--text-dim);text-align:center;padding:1rem;grid-column:1/-1">暂无主播形象，请上传头像</p>';
+    items.forEach(i=>{
+      const el=document.createElement('div');el.className='mat-item';
+      el.innerHTML=`<div class="preview"><img src="${i.url}" alt="${i.name}"></div><div class="info"><div class="name" title="${i.name}">${i.name}</div><div class="size">${formatSize(i.size)}</div></div><button class="del-btn" onclick="deleteDHPortrait('${i.name}')">✕</button>`;
+      g.appendChild(el);
+    });
+    const pg=d.pagination||{};renderPagination('anchor_pagination',anchorPage,pg.total_pages||1,pg.total||0,p=>{anchorPage=p;loadAnchors()})
+  }catch(e){showToast('加载失败','error')}
+}
+
 // Video Generation
 async function generateVideo(){
   const subject=document.getElementById('video_subject').value.trim();
@@ -330,6 +470,8 @@ async function generateVideo(){
   const params={video_subject:subject};
   const fields={video_aspect:'video_aspect',video_clip_duration:'video_clip_duration',video_clip_speed:'video_clip_speed',video_transition_mode:'video_transition_mode',voice_name:'voice_name',voice_rate:'voice_rate',subtitle_enabled:'subtitle_enabled',subtitle_provider:'subtitle_provider',bgm_type:'bgm_type',bgm_volume:'bgm_volume',video_source:'video_source',video_script:'video_script'};
   for(const[id,key]of Object.entries(fields)){const el=document.getElementById(id);if(!el)continue;let val=el.value.trim();if(!val)continue;if(['video_clip_duration','voice_rate','bgm_volume','video_clip_speed'].includes(key))val=parseFloat(val);if(key==='subtitle_enabled')val=val==='true';params[key]=val}
+  // DH mode
+  if(dhEnabled){params.digital_human_enabled=true;if(selectedPortrait)params.digital_human_portrait='/api/v1/digital-human/portrait/'+encodeURIComponent(selectedPortrait)}
   let url=API+'/videos';if(selectedTemplate)url+='?template_id='+selectedTemplate;
   document.getElementById('generate_btn').disabled=true;document.getElementById('generate_btn').textContent='⏳ 生成中...';
   try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)});const d=await r.json();
@@ -351,9 +493,33 @@ function pollTask(tid){
 
 // Templates
 async function loadTemplates(){try{const r=await fetch(API+'/templates');const d=await r.json();const g=document.getElementById('template_grid');g.innerHTML='';
-  (d.data||[]).forEach(t=>{const c=document.createElement('div');c.className='template-card'+(selectedTemplate===t.id?' selected':'');c.onclick=()=>{selectedTemplate=selectedTemplate===t.id?'':t.id;loadTemplates()};
+  (d.data||[]).forEach(t=>{const c=document.createElement('div');c.className='template-card'+(selectedTemplate===t.id?' selected':'');
+    c.onclick=()=>{
+      if(dhEnabled){
+        // DH mode: select template, fill form, go to create tab
+        selectedTemplate=selectedTemplate===t.id?'':t.id;
+        loadTemplates();
+        if(selectedTemplate){applyTemplateToForm(t);goToCreateTab()}
+      }else{
+        selectedTemplate=selectedTemplate===t.id?'':t.id;
+        loadTemplates();
+        if(selectedTemplate){applyTemplateToForm(t);goToCreateTab()}
+      }
+    };
     c.innerHTML=`<h4>${t.name}</h4><p>${t.description}</p><div class="tags"><span class="tag">${t.aspect}</span><span class="tag">${t.clip_duration}s</span><span class="tag">${t.clip_speed}x</span><span class="tag">${t.transition_mode}</span><span class="tag">BGM ${t.bgm_volume}</span></div>`;g.appendChild(c)})}
   catch(e){showToast('加载模板失败','error')}}
+function applyTemplateToForm(tmpl){
+  if(tmpl.aspect)setVal('video_aspect',tmpl.aspect);
+  if(tmpl.clip_duration)setVal('video_clip_duration',tmpl.clip_duration);
+  if(tmpl.clip_speed)setVal('video_clip_speed',tmpl.clip_speed);
+  if(tmpl.transition_mode)setVal('video_transition_mode',tmpl.transition_mode);
+  if(tmpl.voice_name)setVal('voice_name',tmpl.voice_name);
+  if(tmpl.bgm_volume)setVal('bgm_volume',tmpl.bgm_volume);
+  if(tmpl.bgm_type)setVal('bgm_type',tmpl.bgm_type);
+  showToast('已应用模板: '+tmpl.name,'success');
+}
+function setVal(id,val){const el=document.getElementById(id);if(el)el.value=val}
+function goToCreateTab(){switchTab('create')}
 
 // Tasks
 function filterTasks(s){currentFilter=s;currentPage=1;document.querySelectorAll('.status-tab').forEach(t=>t.classList.remove('active'));event.target.closest('.status-tab').classList.add('active');loadTasks()}
@@ -425,23 +591,20 @@ function playMaterialVideo(url,name){document.getElementById('modal_title').text
 // Config
 async function loadConfig(){
   try{const r=await fetch(API+'/config');const d=await r.json();const c=d.data||{};
-    document.getElementById('cfg_llm_provider').value=c.llm_provider||'openai';
-    document.getElementById('cfg_llm_base_url').value=c.llm_base_url||'';
-    document.getElementById('cfg_llm_model').value=c.llm_model||'';
+    setVal('cfg_llm_provider',c.llm_provider);setVal('cfg_llm_base_url',c.llm_base_url);setVal('cfg_llm_model',c.llm_model);
     document.getElementById('cfg_llm_api_key').value=c.llm_api_key_masked||'';
-    document.getElementById('cfg_image_base_url').value=c.image_base_url||'';
-    document.getElementById('cfg_image_model').value=c.image_model||'';
-    document.getElementById('cfg_image_size').value=c.image_size||'';
+    setVal('cfg_image_base_url',c.image_base_url);setVal('cfg_image_model',c.image_model);setVal('cfg_image_size',c.image_size);
     document.getElementById('cfg_image_api_key').value=c.image_api_key_masked||'';
-    document.getElementById('cfg_video_source').value=c.video_source||'openai_image';
-    document.getElementById('cfg_subtitle_provider').value=c.subtitle_provider||'edge';
-    document.getElementById('cfg_bgm_type').value=c.bgm_type||'random';
-    document.getElementById('cfg_bgm_volume').value=c.bgm_volume||0.55;
+    setVal('cfg_video_api_base_url',c.video_api_base_url);setVal('cfg_video_model',c.video_model);
+    document.getElementById('cfg_video_api_key').value=c.video_api_key_masked||'';
+    setVal('cfg_public_base_url',c.public_base_url);
+    setVal('cfg_video_source',c.video_source);setVal('cfg_subtitle_provider',c.subtitle_provider);
+    setVal('cfg_bgm_type',c.bgm_type);document.getElementById('cfg_bgm_volume').value=c.bgm_volume||0.55;
   }catch(e){showToast('加载配置失败','error')}}
 async function saveConfig(){
   const body={};
-  const fields=['llm_provider','llm_base_url','llm_model','llm_api_key','image_base_url','image_model','image_size','image_api_key','video_source','subtitle_provider','bgm_type'];
-  const ids=['cfg_llm_provider','cfg_llm_base_url','cfg_llm_model','cfg_llm_api_key','cfg_image_base_url','cfg_image_model','cfg_image_size','cfg_image_api_key','cfg_video_source','cfg_subtitle_provider','cfg_bgm_type'];
+  const fields=['llm_provider','llm_base_url','llm_model','llm_api_key','image_base_url','image_model','image_size','image_api_key','video_api_base_url','video_model','video_api_key','public_base_url','video_source','subtitle_provider','bgm_type'];
+  const ids=['cfg_llm_provider','cfg_llm_base_url','cfg_llm_model','cfg_llm_api_key','cfg_image_base_url','cfg_image_model','cfg_image_size','cfg_image_api_key','cfg_video_api_base_url','cfg_video_model','cfg_video_api_key','cfg_public_base_url','cfg_video_source','cfg_subtitle_provider','cfg_bgm_type'];
   for(let i=0;i<fields.length;i++){const v=document.getElementById(ids[i]).value.trim();if(v&&!v.startsWith('****'))body[fields[i]]=v}
   const bv=parseFloat(document.getElementById('cfg_bgm_volume').value);if(!isNaN(bv))body.bgm_volume=bv;
   try{const r=await fetch(API+'/config',{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const d=await r.json();

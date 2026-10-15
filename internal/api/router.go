@@ -62,6 +62,12 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/materials/images/file/:filename", s.serveImageFile)
 		v1.GET("/materials/videos/file/:filename", s.serveVideoFile)
 
+		// 数字人头像
+		v1.POST("/digital-human/portrait", s.uploadDHPortrait)
+		v1.GET("/digital-human/portrait/:filename", s.serveDHPortrait)
+		v1.GET("/digital-human/portraits", s.listDHPortraits)
+		v1.DELETE("/digital-human/portrait/:filename", s.deleteDHPortrait)
+
 		// LLM 配置 API
 		v1.GET("/config", s.getConfig)
 		v1.PUT("/config", s.updateConfig)
@@ -412,7 +418,7 @@ func (s *Server) respondMaterials(c *gin.Context, items []MatItem) {
 	if end > total {
 		end = total
 	}
-	var paged []MatItem
+	var paged []MatItem = []MatItem{}
 	if start < end {
 		paged = items[start:end]
 	}
@@ -502,6 +508,10 @@ func (s *Server) getConfig(c *gin.Context) {
 			"video_clip_duration":   5,
 			"video_clip_speed":      1.0,
 			"video_transition_mode": "shuffle",
+			"public_base_url":         cfg.PublicBaseURL,
+			"video_api_base_url":      cfg.GetVideoAPIBaseURL(),
+			"video_model":             cfg.GetVideoModel(),
+			"video_api_key_masked":    maskKey(cfg.GetFirstVideoAPIKey()),
 		},
 	})
 }
@@ -520,6 +530,10 @@ func (s *Server) updateConfig(c *gin.Context) {
 		SubtitleProvider  *string  `json:"subtitle_provider"`
 		BGMType           *string  `json:"bgm_type"`
 		BGMVolume         *float64 `json:"bgm_volume"`
+		PublicBaseURL      *string  `json:"public_base_url"`
+		VideoAPIBaseURL    *string  `json:"video_api_base_url"`
+		VideoModel         *string  `json:"video_model"`
+		VideoAPIKey        *string  `json:"video_api_key"`
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -564,6 +578,9 @@ func (s *Server) updateConfig(c *gin.Context) {
 	}
 	if req.BGMVolume != nil {
 		cfg.BGMVolume = *req.BGMVolume
+	}
+	if req.PublicBaseURL != nil {
+		cfg.PublicBaseURL = *req.PublicBaseURL
 	}
 
 	// 保存到 config.toml
@@ -656,6 +673,7 @@ func (s *Server) saveConfigToFile(cfg *config.Config) {
 	lines = append(lines, fmt.Sprintf("subtitle_provider = \"%s\"", cfg.SubtitleProvider))
 	lines = append(lines, fmt.Sprintf("bgm_type = \"%s\"", cfg.BGMType))
 	lines = append(lines, fmt.Sprintf("bgm_volume = %.2f", cfg.BGMVolume))
+	lines = append(lines, fmt.Sprintf("public_base_url = \"%s\"", cfg.PublicBaseURL))
 	lines = append(lines, "")
 	lines = append(lines, "[app]")
 	lines = append(lines, fmt.Sprintf("api_key = \"%s\"", cfg.App.APIKey))
@@ -699,4 +717,69 @@ func getFirstKey(keys []string) string {
 		return keys[0]
 	}
 	return ""
+}
+
+// ==================== Digital Human Portrait ====================
+
+func (s *Server) uploadDHPortrait(c *gin.Context) {
+	file, err := c.FormFile("file")
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "no file uploaded"})
+		return
+	}
+
+	portraitDir := filepath.Join(s.cfg.ResourceDir, "portraits")
+	os.MkdirAll(portraitDir, 0755)
+
+	// Save with original filename
+	dst := filepath.Join(portraitDir, file.Filename)
+	if err := c.SaveUploadedFile(file, dst); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"status":  200,
+		"message": "uploaded",
+		"data": gin.H{
+			"filename": file.Filename,
+			"url":      "/api/v1/digital-human/portrait/" + file.Filename,
+		},
+	})
+}
+
+func (s *Server) serveDHPortrait(c *gin.Context) {
+	filename := c.Param("filename")
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
+		return
+	}
+	filePath := filepath.Join(s.cfg.ResourceDir, "portraits", filename)
+	if _, err := os.Stat(filePath); err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "file not found"})
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(filename))
+	switch ext {
+	case ".png":
+		c.Header("Content-Type", "image/png")
+	case ".jpg", ".jpeg":
+		c.Header("Content-Type", "image/jpeg")
+	case ".webp":
+		c.Header("Content-Type", "image/webp")
+	}
+	c.File(filePath)
+}
+
+// ==================== Digital Human Portrait List (paginated) ====================
+
+func (s *Server) listDHPortraits(c *gin.Context) {
+	portraitDir := filepath.Join(s.cfg.ResourceDir, "portraits")
+	os.MkdirAll(portraitDir, 0755)
+	items := scanMaterialDir(portraitDir, "/api/v1/digital-human/portrait/", isImageFile)
+	s.respondMaterials(c, items)
+}
+
+func (s *Server) deleteDHPortrait(c *gin.Context) {
+	s.handleDelete(c, filepath.Join(s.cfg.ResourceDir, "portraits"))
 }

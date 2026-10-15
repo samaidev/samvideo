@@ -359,3 +359,101 @@ func isAudioExt(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".mp3" || ext == ".m4a" || ext == ".wav" || ext == ".ogg" || ext == ".flac"
 }
+
+// SelectBGM is a standalone BGM selector (for digital human mode)
+func SelectBGM(cfg *config.Config) string {
+	params := &models.VideoParams{BGMType: cfg.BGMType}
+	return selectBGM(cfg, params)
+}
+
+// MixBGM mixes background music into a video
+func MixBGM(videoPath, bgmPath, outputPath string, bgmVolume float64) error {
+	if bgmVolume <= 0 {
+		bgmVolume = 0.55
+	}
+	// Get video duration
+	durCmd := exec.Command("ffprobe", "-v", "error", "-show_entries", "format=duration",
+		"-of", "default=noprint_wrappers=1:nokey=1", videoPath)
+	durOut, err := durCmd.Output()
+	if err != nil {
+		return fmt.Errorf("get video duration: %w", err)
+	}
+	duration := strings.TrimSpace(string(durOut))
+
+	// Mix: original audio + BGM (BGM looped and trimmed to video duration)
+	cmd := exec.Command("ffmpeg", "-y",
+		"-i", videoPath,
+		"-i", bgmPath,
+		"-filter_complex",
+		fmt.Sprintf("[1:a]aloop=loop=-1:size=2e9,atrim=0:%s,volume=%.2f[bgm];[0:a]volume=1.0[orig];[orig][bgm]amix=inputs=2:duration=first:dropout_transition=0[aout]",
+			duration, bgmVolume),
+		"-map", "0:v",
+		"-map", "[aout]",
+		"-c:v", "copy",
+		"-c:a", "aac",
+		"-shortest",
+		outputPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg mix BGM: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// ReplaceAudio replaces the audio track of a video with a new audio file
+func ReplaceAudio(videoPath, audioPath, outputPath string) error {
+	cmd := exec.Command("ffmpeg", "-y",
+		"-i", videoPath,
+		"-i", audioPath,
+		"-map", "0:v",
+		"-map", "1:a",
+		"-c:v", "copy",
+		"-c:a", "aac",
+		"-shortest",
+		outputPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg replace audio: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// ConcatenateSegments concatenates multiple video segments into one
+func ConcatenateSegments(segmentPaths []string, outputPath string) error {
+	if len(segmentPaths) == 0 {
+		return fmt.Errorf("no segments to concatenate")
+	}
+	if len(segmentPaths) == 1 {
+		// Just copy the single segment
+		data, err := os.ReadFile(segmentPaths[0])
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(outputPath, data, 0644)
+	}
+
+	// Create concat list file
+	listFile := outputPath + ".concat.txt"
+	var lines []string
+	for _, p := range segmentPaths {
+		abs, _ := filepath.Abs(p)
+		lines = append(lines, fmt.Sprintf("file '%s'", abs))
+	}
+	os.WriteFile(listFile, []byte(strings.Join(lines, "\n")), 0644)
+	defer os.Remove(listFile)
+
+	cmd := exec.Command("ffmpeg", "-y",
+		"-f", "concat",
+		"-safe", "0",
+		"-i", listFile,
+		"-c", "copy",
+		outputPath,
+	)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg concat: %w, output: %s", err, string(output))
+	}
+	return nil
+}

@@ -42,6 +42,14 @@ type Config struct {
 	BGMType   string  `toml:"bgm_type"`
 	BGMVolume float64 `toml:"bgm_volume"`
 
+	// PublicBaseURL 公开访问基础URL（用于数字人API访问本地文件）
+	PublicBaseURL string `toml:"public_base_url"`
+
+	// Video generation model (Agnes Video API)
+	VideoAPIBaseURL string   `toml:"video_api_base_url"`
+	VideoAPIKeys    []string `toml:"video_api_keys"`
+	VideoModel      string   `toml:"video_model"`
+
 	// 运行时字段
 	WorkDir     string `toml:"-"`
 	ResourceDir string `toml:"-"`
@@ -162,4 +170,43 @@ func defaultConfig() *Config {
 		OpenAIImageSize:   "1280x720",
 		OpenAIImagePromptTmpl: "{keyword}",
 	}
+}
+
+// GetFirstImageAPIKey returns the first image API key
+func (c *Config) GetFirstImageAPIKey() string {
+	if len(c.OpenAIImageAPIKeys) > 0 {
+		return c.OpenAIImageAPIKeys[0]
+	}
+	return ""
+}
+
+// GetPublicBaseURL returns the public base URL for file access
+func (c *Config) GetPublicBaseURL() string {
+	return c.PublicBaseURL
+}
+
+// GetFirstVideoAPIKey returns the first video API key
+func (c *Config) GetFirstVideoAPIKey() string {
+	if len(c.VideoAPIKeys) > 0 {
+		return c.VideoAPIKeys[0]
+	}
+	// fallback to image API key (same provider)
+	return c.GetFirstImageAPIKey()
+}
+
+// GetVideoAPIBaseURL returns the video API base URL
+func (c *Config) GetVideoAPIBaseURL() string {
+	if c.VideoAPIBaseURL != "" {
+		return c.VideoAPIBaseURL
+	}
+	// fallback to image base URL
+	return c.OpenAIImageBaseURL
+}
+
+// GetVideoModel returns the video generation model name
+func (c *Config) GetVideoModel() string {
+	if c.VideoModel != "" {
+		return c.VideoModel
+	}
+	return "Agnes/agnes-video-2.5-flash"
 }

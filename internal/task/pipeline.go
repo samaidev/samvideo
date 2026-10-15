@@ -92,6 +92,13 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		p.saveTask(taskDir, result)
 	}
 
+	// ====== 数字人口播模式 ======
+	if params.DigitalHumanEnabled {
+		return p.runDigitalHuman(taskID, taskDir, params, result, save)
+	}
+
+	// ====== 普通视频生成模式 ======
+
 	// Step 0: 模板分类（如果用户没有指定 aspect，自动分类）
 	var tmpl *template.Template
 	if params.VideoAspect == "" || params.VideoTransitionMode == "" {
@@ -218,6 +225,260 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 
 	utils.LogInfo("task %s completed: %s", taskID, finalPath)
 	return result, nil
+}
+
+// runDigitalHuman 数字人口播模式
+// 流程: LLM脚本 → TTS语音 → (人脸照片+语音 → Agnes Video reference模式 → 说话视频) → BGM混音 → 成品
+func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoParams, result *models.TaskResult, save func(int)) (*models.TaskResult, error) {
+	utils.LogInfo("=== Digital Human Mode ===")
+
+	// Step 1: LLM 脚本生成
+	utils.LogInfo("DH step 1: generating script via LLM...")
+	script, _, err := p.generateScript(params, nil)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("script generation failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	result.Script = script
+	save(10)
+
+	// Step 2: TTS 语音合成
+	utils.LogInfo("DH step 2: generating TTS audio...")
+	audioPath := filepath.Join(taskDir, "audio.mp3")
+	_, err = tts.Synthesize(script, params.VoiceName, params.VoiceRate, audioPath, p.cfg)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("TTS failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	save(25)
+
+	// Step 3: 获取音频时长，计算视频秒数
+	audioDuration := p.getAudioDuration(audioPath)
+	videoSeconds := int(audioDuration)
+	if videoSeconds < 4 {
+		videoSeconds = 4
+	}
+	if videoSeconds > 12 {
+		// Agnes Video 限制 4-12 秒，需要分段
+		utils.LogInfo("DH: audio duration %.1fs exceeds 12s limit, will generate multiple segments", audioDuration)
+	}
+
+	utils.LogInfo("DH step 3: audio duration=%.1fs, video seconds=%d", audioDuration, videoSeconds)
+	save(35)
+
+	// Step 4: 生成数字人视频
+	utils.LogInfo("DH step 4: generating digital human video via Agnes Video API...")
+
+	// 获取人脸照片 URL
+	portraitURL := params.DigitalHumanPortrait
+	if portraitURL == "" {
+		// 如果没有提供照片，用文生图生成一个
+		utils.LogInfo("DH: no portrait provided, generating one via image API...")
+		portraitPath := filepath.Join(taskDir, "portrait.png")
+		portraitURL, err = p.generatePortrait(params, portraitPath)
+		if err != nil {
+			result.State = models.TaskStateFailed
+			result.Error = fmt.Sprintf("portrait generation failed: %v", err)
+			result.EndTime = time.Now()
+			p.saveTask(taskDir, result)
+			return result, err
+		}
+	}
+
+	// 音频需要公开可访问的 URL
+	// 由于本地音频没有公开 URL，我们需要先上传或使用 base64
+	// 方案：启动一个临时 HTTP 服务来提供音频文件
+	audioURL, cleanup, err := p.serveFileTemporarily(audioPath, taskID)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("failed to serve audio: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	defer cleanup()
+
+	// 如果照片也是本地文件，同样需要公开 URL
+	if !isURL(portraitURL) {
+		portraitURL2, cleanup2, err := p.serveFileTemporarily(portraitURL, taskID)
+		if err == nil {
+			portraitURL = portraitURL2
+			defer cleanup2()
+		}
+	}
+
+	// 调用 Agnes Video API 生成数字人视频
+	agnesClient := video.NewAgnesVideoClient(p.cfg)
+	aspectRatio := params.VideoAspect
+	if aspectRatio == "" {
+		aspectRatio = "16:9"
+	}
+
+	finalVideoPath := filepath.Join(taskDir, "final.mp4")
+
+	// 如果音频 <= 12秒，直接生成一段视频
+	if videoSeconds <= 12 {
+		utils.LogInfo("DH: generating single segment video (%ds)...", videoSeconds)
+		_, err = agnesClient.GenerateDigitalHumanVideo(portraitURL, audioURL, aspectRatio, videoSeconds, finalVideoPath)
+	} else {
+		// 音频 > 12秒，生成多段视频然后拼接
+		utils.LogInfo("DH: generating multiple segments for %.1fs audio...", audioDuration)
+		_, err = p.generateMultiSegmentDigitalHuman(agnesClient, portraitURL, audioURL, aspectRatio, audioDuration, taskDir, finalVideoPath)
+	}
+
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("digital human video generation failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	save(75)
+
+	// Step 5: BGM 混音
+	if params.BGMType != "none" && params.BGMType != "" {
+		utils.LogInfo("DH step 5: mixing BGM...")
+		_, bgmErr := bgm.EnsureBGM(p.cfg)
+		if bgmErr != nil {
+			utils.LogWarn("BGM ensure failed: %v, skipping BGM", bgmErr)
+		}
+		// BGM 混音在 FinalCompose 中处理，但数字人模式需要单独处理
+		bgmPath := video.SelectBGM(p.cfg)
+		if bgmPath != "" {
+			bgmMixedPath := filepath.Join(taskDir, "with_bgm.mp4")
+			err = video.MixBGM(finalVideoPath, bgmPath, bgmMixedPath, params.BGMVolume)
+			if err != nil {
+				utils.LogWarn("BGM mix failed: %v, keeping without BGM", err)
+			} else {
+				finalVideoPath = bgmMixedPath
+			}
+		}
+	}
+
+	// Step 6: 音频替换（用原始 TTS 音频替换视频中的音频）
+	// Agnes Video 生成的视频可能有自己的音频，我们需要用 TTS 音频替换
+	utils.LogInfo("DH step 6: replacing audio with TTS...")
+	audioReplacedPath := filepath.Join(taskDir, "final_audio.mp4")
+	err = video.ReplaceAudio(finalVideoPath, audioPath, audioReplacedPath)
+	if err != nil {
+		utils.LogWarn("audio replace failed: %v, keeping original audio", err)
+	} else {
+		finalVideoPath = audioReplacedPath
+	}
+	save(90)
+
+	// Step 7: 缩略图
+	thumbPath := filepath.Join(taskDir, "thumbnail.jpg")
+	if err := GenerateThumbnail(finalVideoPath, thumbPath); err != nil {
+		utils.LogWarn("thumbnail generation failed: %v", err)
+	} else {
+		result.ThumbnailURL = fmt.Sprintf("/api/v1/download/%s/thumbnail.jpg", taskID)
+	}
+
+	// Step 8: 完成
+	result.State = models.TaskStateComplete
+	result.Progress = 100
+	result.VideoPath = finalVideoPath
+	result.VideoURL = fmt.Sprintf("/api/v1/download/%s/final.mp4", taskID)
+	result.EndTime = time.Now()
+	p.saveTask(taskDir, result)
+
+	utils.LogInfo("digital human task %s completed: %s", taskID, finalVideoPath)
+	return result, nil
+}
+
+// generateMultiSegmentDigitalHuman 生成多段数字人视频并拼接
+func (p *Pipeline) generateMultiSegmentDigitalHuman(client *video.AgnesVideoClient, portraitURL, audioURL, aspectRatio string, totalDuration float64, taskDir, finalPath string) (string, error) {
+	segmentDuration := 12 // 每段最多12秒
+	numSegments := int(totalDuration) / segmentDuration
+	if int(totalDuration)%segmentDuration != 0 {
+		numSegments++
+	}
+
+	utils.LogInfo("DH multi-segment: %d segments for %.1fs", numSegments, totalDuration)
+
+	var segmentPaths []string
+	for i := 0; i < numSegments; i++ {
+		startSec := i * segmentDuration
+		endSec := (i + 1) * segmentDuration
+		if endSec > int(totalDuration) {
+			endSec = int(totalDuration)
+		}
+		segDuration := endSec - startSec
+		if segDuration < 4 {
+			segDuration = 4 // Agnes 最少4秒
+		}
+
+		utils.LogInfo("DH segment %d/%d: %ds-%ds (%ds)", i+1, numSegments, startSec, endSec, segDuration)
+
+		segPath := filepath.Join(taskDir, fmt.Sprintf("segment_%d.mp4", i))
+		_, err := client.GenerateDigitalHumanVideo(portraitURL, audioURL, aspectRatio, segDuration, segPath)
+		if err != nil {
+			return "", fmt.Errorf("segment %d failed: %w", i, err)
+		}
+		segmentPaths = append(segmentPaths, segPath)
+	}
+
+	// 拼接所有段
+	utils.LogInfo("DH: concatenating %d segments...", len(segmentPaths))
+	err := video.ConcatenateSegments(segmentPaths, finalPath)
+	if err != nil {
+		return "", fmt.Errorf("concatenation failed: %w", err)
+	}
+
+	return finalPath, nil
+}
+
+// generatePortrait 生成数字人肖像照片
+func (p *Pipeline) generatePortrait(params *models.VideoParams, destPath string) (string, error) {
+	portraitPrompt := "professional portrait photo of a news anchor, studio lighting, upper body, looking at camera, clean background, high quality"
+	if params.VideoSubject != "" {
+		portraitPrompt = fmt.Sprintf("professional portrait photo of a person for video about: %s, studio lighting, upper body, looking at camera, clean background", params.VideoSubject)
+	}
+
+	terms := []string{portraitPrompt}
+	imgPaths, err := material.GenerateImages(terms, filepath.Dir(destPath), p.cfg, params)
+	if err != nil || len(imgPaths) == 0 {
+		return "", fmt.Errorf("portrait generation failed: %w", err)
+	}
+
+	// 重命名第一张图片
+	os.Rename(imgPaths[0], destPath)
+	return destPath, nil
+}
+
+// serveFileTemporarily 返回本地文件的公开可访问 URL
+// 使用 PublicBaseURL 配置项拼接 URL
+func (p *Pipeline) serveFileTemporarily(filePath, taskID string) (string, func(), error) {
+	baseURL := p.cfg.GetPublicBaseURL()
+	if baseURL == "" {
+		return "", nil, fmt.Errorf("public_base_url not configured, cannot serve files to external API")
+	}
+
+	// 计算文件相对于 storage 目录的相对路径
+	storageDir := p.cfg.StorageDir
+	relPath, err := filepath.Rel(filepath.Join(storageDir, "tasks"), filePath)
+	if err != nil {
+		// 如果不在 tasks 目录下，直接用文件名
+		relPath = filepath.Base(filePath)
+	}
+	relPath = filepath.ToSlash(relPath)
+
+	// 拼接公开 URL: baseURL/api/v1/download/taskID/filename
+	publicURL := fmt.Sprintf("%s/api/v1/download/%s/%s", baseURL, taskID, filepath.Base(filePath))
+	utils.LogInfo("serving file publicly: %s", publicURL)
+	return publicURL, func() {}, nil
+}
+
+// isURL checks if a string is a URL
+func isURL(s string) bool {
+	return len(s) > 4 && (s[:4] == "http" || s[:5] == "https")
 }
 
 // generateScript 调用 LLM 生成脚本

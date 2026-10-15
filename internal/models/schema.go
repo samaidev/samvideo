@@ -20,7 +20,7 @@ type VideoParams struct {
 	VideoClipDuration  int      `json:"video_clip_duration,omitempty"` // 1-15 seconds
 	VideoClipSpeed     float64  `json:"video_clip_speed,omitempty"`
 	VideoCount         int      `json:"video_count,omitempty"`
-	VideoSource        string   `json:"video_source,omitempty"` // openai_image, pexels, local
+	VideoSource        string   `json:"video_source,omitempty"` // openai_image, pexels, local, agnes_video
 	VideoMaterials     []string `json:"video_materials,omitempty"`
 
 	// VideoTransitionMode 转场模式: none, fade_in, fade_out, slide_in, slide_out, zoom_in, zoom_out, shuffle
@@ -47,6 +47,12 @@ type VideoParams struct {
 	BGMFile   string  `json:"bgm_file,omitempty"`
 
 	ParagraphNumber int `json:"paragraph_number,omitempty"`
+
+	// Digital Human 数字人口播
+	DigitalHumanEnabled  bool   `json:"digital_human_enabled,omitempty"`
+	DigitalHumanPortrait string `json:"digital_human_portrait,omitempty"` // URL or local path to portrait photo
+	DigitalHumanMode     string `json:"digital_human_mode,omitempty"`    // "tts" (use TTS audio) or "custom"
+	DigitalHumanAudioURL string `json:"digital_human_audio_url,omitempty"` // custom audio URL
 }
 
 // TaskResult 任务结果
