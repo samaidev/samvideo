@@ -30,8 +30,6 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	totalNeeded := int(audioDuration/float64(clipDuration)) + 1
 	utils.LogInfo("clips: %d source, need %d clips for %.1fs audio (clip dur=%ds)", len(clipPaths), totalNeeded, audioDuration, clipDuration)
 
-	// 处理每个片段：resize + 裁剪到指定时长
-	// 注意：用 processed_ 前缀避免和素材文件重名
 	taskDir := filepath.Dir(outputPath)
 	processedClips := []string{}
 	for i, clip := range clipPaths {
@@ -49,7 +47,6 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 		return fmt.Errorf("no clips processed successfully")
 	}
 
-	// 循环补齐到所需数量
 	allClips := []string{}
 	for len(allClips) < totalNeeded {
 		allClips = append(allClips, processedClips...)
@@ -59,7 +56,7 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	return concatClips(allClips, outputPath)
 }
 
-// processOneClip 处理单个片段：resize + 裁剪到指定时长
+// processOneClip 处理单个片段
 func processOneClip(input, output string, width, height, duration int, params *models.VideoParams) error {
 	fitMode := params.VideoFitMode
 	if fitMode == "" {
@@ -101,7 +98,6 @@ func concatClips(clips []string, output string) error {
 	var lines []string
 	for _, c := range clips {
 		abs, _ := filepath.Abs(c)
-		// 转义单引号
 		abs = strings.ReplaceAll(abs, "'", "\\'")
 		lines = append(lines, fmt.Sprintf("file '%s'", abs))
 	}
@@ -128,12 +124,25 @@ func concatClips(clips []string, output string) error {
 	return nil
 }
 
+// hasSubtitlesFilter 检测 ffmpeg 是否支持 subtitles/ass 滤镜
+func hasSubtitlesFilter() bool {
+	cmd := exec.Command("ffmpeg", "-hide_banner", "-filters")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return false
+	}
+	output := string(out)
+	return strings.Contains(output, " subtitles") || strings.Contains(output, "... subtitles") ||
+		strings.Contains(output, " ass ") || strings.Contains(output, "... ass")
+}
+
 // FinalCompose 最终合成：视频 + 音频 + 字幕 + 背景音乐
 func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, params *models.VideoParams, cfg *config.Config) error {
 	utils.LogInfo("final composition: video=%s, audio=%s, subtitle=%s", videoPath, audioPath, assPath)
 
 	args := []string{"-y", "-i", videoPath, "-i", audioPath}
 
+	// 背景音乐
 	bgmPath := ""
 	hasBGM := false
 	if params.BGMType != "none" && params.BGMType != "" {
@@ -144,18 +153,28 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		}
 	}
 
-	// 视频滤镜（字幕烧录）
-	vf := ""
+	// 检测 ffmpeg 是否支持字幕滤镜
+	canBurnSubs := false
 	if params.SubtitleEnabled && assPath != "" {
 		if _, err := os.Stat(assPath); err == nil {
-			escapedAss := strings.ReplaceAll(assPath, "\\", "/")
-			escapedAss = strings.ReplaceAll(escapedAss, ":", "\\:")
-			vf = fmt.Sprintf("ass='%s'", escapedAss)
+			if hasSubtitlesFilter() {
+				canBurnSubs = true
+			} else {
+				utils.LogWarn("ffmpeg does not support subtitles/ass filter, skipping subtitle burn-in (SRT file is still available: %s)", srtPath)
+			}
 		}
 	}
 
-	// 音频滤镜
-	af := ""
+	// 构建滤镜
+	if canBurnSubs {
+		// 转义路径中的特殊字符
+		escapedAss := strings.ReplaceAll(assPath, "\\", "/")
+		escapedAss = strings.ReplaceAll(escapedAss, ":", "\\:")
+		// 用 -vf 而非 -filter_complex（更兼容）
+		args = append(args, "-vf", fmt.Sprintf("subtitles=%s", escapedAss))
+	}
+
+	// 音频处理
 	if hasBGM {
 		bgmVol := params.BGMVolume
 		if bgmVol <= 0 {
@@ -164,18 +183,18 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		if bgmVol <= 0 {
 			bgmVol = 0.2
 		}
-		af = fmt.Sprintf("[1:a]volume=1.0[a1];[2:a]volume=%.2f,aloop=loop=-1:size=2e9[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]", bgmVol)
-	}
-
-	if vf != "" {
-		args = append(args, "-vf", vf)
-	}
-	if hasBGM {
+		af := fmt.Sprintf("[1:a]volume=1.0[a1];[2:a]volume=%.2f,aloop=loop=-1:size=2e9[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]", bgmVol)
 		args = append(args, "-filter_complex", af, "-map", "0:v", "-map", "[aout]")
 	} else {
-		args = append(args, "-map", "0:v", "-map", "1:a")
+		if canBurnSubs {
+			// -vf 已设置，只需 map 音频
+			args = append(args, "-map", "0:v", "-map", "1:a")
+		} else {
+			args = append(args, "-map", "0:v", "-map", "1:a")
+		}
 	}
 
+	// 编码参数
 	args = append(args,
 		"-c:v", "libx264", "-preset", "medium", "-crf", "20",
 		"-pix_fmt", "yuv420p",
@@ -185,6 +204,7 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 	)
 
 	utils.LogInfo("running ffmpeg final compose...")
+	utils.LogInfo("ffmpeg args: %v", args)
 	cmd := exec.Command("ffmpeg", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
