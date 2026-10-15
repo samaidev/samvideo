@@ -1,0 +1,42 @@
+# SamVideo configuration example
+# Copy to config.toml and edit with your API keys
+
+log_level = "INFO"
+listen_host = "0.0.0.0"
+listen_port = 8080
+
+[app]
+api_key = ""
+tls_verify = true
+
+edge_tts_timeout = 30
+
+# Video material source: "openai_image", "pexels", "local"
+video_source = "openai_image"
+
+# Pexels free stock video (register at https://www.pexels.com/api/)
+pexels_api_keys = []
+
+# OpenAI-compatible text-to-image material source
+# Generates one image per script keyword, then renders it into a video clip
+openai_image_base_url = "https://apishare.cc/v1"
+openai_image_api_keys = ["aps-1043a9a4aaee874c"]
+openai_image_model = "Agnes/agnes-image-2.5-flash"
+openai_image_size = "1280x720"
+openai_image_prompt_template = "{keyword}"
+
+# LLM provider: "openai", "anthropic", "gemini", "moonshot"
+llm_provider = "openai"
+
+# OpenAI-compatible LLM (supports DeepSeek/Qwen/Kimi etc via base_url)
+[openai]
+api_key = "aps-1043a9a4aaee874c"
+base_url = "https://apishare.cc/v1"
+model_name = "ApiShare/zhipu/glm-5.2:free"
+
+# Subtitle provider: "edge" (uses TTS timestamps) or "whisper" (ASR)
+subtitle_provider = "edge"
+
+# Background music: "random", "custom", "none"
+bgm_type = "random"
+bgm_volume = 0.2

@@ -1,0 +1,20 @@
+# Binaries
+samvideo
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Config with secrets
+config.toml
+
+# Storage
+storage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
