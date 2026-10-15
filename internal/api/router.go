@@ -70,6 +70,9 @@ func (s *Server) createVideo(c *gin.Context) {
 	if params.VideoClipDuration == 0 {
 		params.VideoClipDuration = 5
 	}
+	if params.VideoTransitionMode == "" {
+		params.VideoTransitionMode = "shuffle"
+	}
 	if params.BGMType == "" {
 		params.BGMType = s.cfg.BGMType
 	}
@@ -80,10 +83,8 @@ func (s *Server) createVideo(c *gin.Context) {
 		params.SubtitleProvider = s.cfg.SubtitleProvider
 	}
 
-	// 生成 task_id（UUID），与 pipeline 内部使用的一致
 	taskID := uuid.NewString()
 
-	// 异步执行任务
 	go func() {
 		s.pipeline.RunTaskWithID(taskID, &params)
 	}()

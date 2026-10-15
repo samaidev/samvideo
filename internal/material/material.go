@@ -16,6 +16,26 @@ import (
 	"samvideo/internal/utils"
 )
 
+// zoompanVariants 不同的 zoompan 效果变体，用于让每个片段的动画不同
+var zoompanVariants = []string{
+	// 0: 缓慢放大
+	"zoompan=z='min(zoom+0.001,1.1)':d=%d:s=%dx%d:fps=30",
+	// 1: 缓慢缩小
+	"zoompan=z='if(eq(on,0),1.1,max(1.1-0.001*on,1.0))':d=%d:s=%dx%d:fps=30",
+	// 2: 从左向右平移
+	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
+	// 3: 从右向左平移
+	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
+	// 4: 从上向下平移
+	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)+((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30",
+	// 5: 从下向上平移
+	"zoompan=z=1.0:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)-((ih-ih/zoom)*on/%d)':d=%d:s=%dx%d:fps=30",
+	// 6: 缓慢放大 + 右移
+	"zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)+((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
+	// 7: 缓慢放大 + 左移
+	"zoompan=z='min(zoom+0.0008,1.08)':x='iw/2-(iw/zoom/2)-((iw-iw/zoom)*on/%d)*0.3':y='ih/2-(ih/zoom/2)':d=%d:s=%dx%d:fps=30",
+}
+
 // GenerateImages 调用 OpenAI 兼容的文生图 API 生成图片，然后转为视频片段
 func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *models.VideoParams) ([]string, error) {
 	if len(terms) == 0 {
@@ -42,11 +62,15 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 	for i, term := range terms {
 		utils.LogInfo("generating image %d/%d: term=%s, model=%s, size=%s", i+1, len(terms), term, model, size)
 
+		// 构建更丰富的 prompt，让每张图片风格不同
 		promptTmpl := cfg.OpenAIImagePromptTmpl
-		if promptTmpl == "" {
-			promptTmpl = "{keyword}"
+		var prompt string
+		if promptTmpl == "" || promptTmpl == "{keyword}" {
+			// 默认 prompt 模板：加入风格变化，让每张图片视觉不同
+			prompt = buildDiversePrompt(term, i, len(terms))
+		} else {
+			prompt = strings.ReplaceAll(promptTmpl, "{keyword}", term)
 		}
-		prompt := strings.ReplaceAll(promptTmpl, "{keyword}", term)
 
 		imageData, err := generateOneImage(baseURL, apiKey, model, size, prompt)
 		if err != nil {
@@ -70,13 +94,15 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 			clipDuration = 15
 		}
 
-		if err := imageToVideoClip(imgPath, clipPath, clipDuration, params); err != nil {
+		// 每个片段使用不同的 zoompan 效果
+		variantIdx := i % len(zoompanVariants)
+		if err := imageToVideoClip(imgPath, clipPath, clipDuration, params, variantIdx); err != nil {
 			utils.LogWarn("failed to convert image to video clip: %v, skipping", err)
 			continue
 		}
 
 		clipPaths = append(clipPaths, clipPath)
-		utils.LogInfo("clip created: %s", clipPath)
+		utils.LogInfo("clip created: %s (effect variant %d)", clipPath, variantIdx)
 	}
 
 	if len(clipPaths) == 0 {
@@ -85,6 +111,23 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 
 	utils.LogInfo("generated %d clips from %d terms", len(clipPaths), len(terms))
 	return clipPaths, nil
+}
+
+// buildDiversePrompt 为每个关键词构建不同风格的 prompt，避免生成相似图片
+func buildDiversePrompt(term string, index, total int) string {
+	styles := []string{
+		"photorealistic, professional photography, natural lighting, high detail",
+		"cinematic shot, dramatic lighting, shallow depth of field, 4k",
+		"aerial view, drone photography, wide angle, golden hour",
+		"interior photography, clean composition, soft lighting, modern aesthetic",
+		"abstract digital art, data visualization, futuristic, clean design",
+		"documentary style, candid moment, natural colors, journalistic",
+		"architectural photography, geometric composition, blue sky, sharp focus",
+		"business concept, professional environment, corporate, clean background",
+	}
+
+	styleIdx := index % len(styles)
+	return fmt.Sprintf("%s, %s", term, styles[styleIdx])
 }
 
 // generateOneImage 调用文生图 API 生成一张图片
@@ -150,12 +193,19 @@ func generateOneImage(baseURL, apiKey, model, size, prompt string) ([]byte, erro
 	return nil, fmt.Errorf("image API returned no image data")
 }
 
-// imageToVideoClip 将图片转为带 zoompan 效果的视频片段
-func imageToVideoClip(imgPath, outputPath string, duration int, params *models.VideoParams) error {
+// imageToVideoClip 将图片转为带不同 zoompan 效果的视频片段
+func imageToVideoClip(imgPath, outputPath string, duration int, params *models.VideoParams, variantIdx int) error {
 	width, height := getResolution(params.VideoAspect)
 
 	totalFrames := duration * 30
-	zoompan := fmt.Sprintf("zoompan=z='min(zoom+0.001,1.1)':d=%d:s=%dx%d:fps=30", totalFrames, width, height)
+	tmpl := zoompanVariants[variantIdx%len(zoompanVariants)]
+	var zoompan string
+	// 处理含 3 个 %d 的模板（平移类）和含 2 个 %d 的模板（缩放类）
+	if strings.Count(tmpl, "%d") == 3 {
+		zoompan = fmt.Sprintf(tmpl, totalFrames, totalFrames, width, height)
+	} else {
+		zoompan = fmt.Sprintf(tmpl, totalFrames, width, height)
+	}
 
 	args := []string{
 		"-y", "-loop", "1", "-i", imgPath,
@@ -213,8 +263,6 @@ func getResolution(aspect string) (int, int) {
 		return 1080, 1920
 	case "1:1":
 		return 1080, 1080
-	case "16:9":
-		fallthrough
 	default:
 		return 1920, 1080
 	}

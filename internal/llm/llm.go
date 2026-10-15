@@ -22,17 +22,20 @@ func GenerateScript(subject string, cfg *config.Config) (string, []string, error
 3. 不要包含任何标记符号（如#、*等）
 4. 直接输出脚本文本，不要解释
 
-同时，请生成5个英文关键词，用于搜索视频素材图片。每个关键词应该与脚本内容相关。
+同时，请生成8个英文关键词，用于搜索视频素材图片。要求：
+1. 每个关键词描述不同的视觉场景，避免重复或相似
+2. 关键词应具体、有画面感，例如"modern bank building exterior"而非仅"bank"
+3. 涵盖不同角度：建筑外观、室内场景、人物活动、数据图表、城市景观等
+4. 适合文生图模型理解
 
 请以JSON格式返回：
-{"script": "脚本内容", "search_terms": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5"]}`, subject)
+{"script": "脚本内容", "search_terms": ["关键词1", "关键词2", "关键词3", "关键词4", "关键词5", "关键词6", "关键词7", "关键词8"]}`, subject)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
 		return "", nil, fmt.Errorf("LLM call failed: %w", err)
 	}
 
-	// 尝试解析 JSON 响应
 	resp = cleanJSONResponse(resp)
 
 	var result struct {
@@ -41,7 +44,6 @@ func GenerateScript(subject string, cfg *config.Config) (string, []string, error
 	}
 
 	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		// JSON 解析失败，把整个响应当作脚本
 		utils.LogWarn("failed to parse LLM JSON response, using raw text as script")
 		return resp, generateDefaultTerms(subject), nil
 	}
@@ -59,28 +61,38 @@ func GenerateScript(subject string, cfg *config.Config) (string, []string, error
 
 // GenerateTerms 仅生成搜索关键词
 func GenerateTerms(script string, cfg *config.Config) ([]string, error) {
-	prompt := fmt.Sprintf(`根据以下视频脚本，生成5个英文关键词，用于搜索视频素材图片。
-每行一个关键词，不要编号，不要解释。
+	prompt := fmt.Sprintf(`根据以下视频脚本，生成8个英文关键词，用于搜索视频素材图片。
+要求：
+1. 每个关键词描述不同的视觉场景，避免重复
+2. 关键词应具体、有画面感
+3. 涵盖不同角度和场景
 
 脚本内容：
-%s`, script)
+%s
+
+请以JSON数组格式返回，如：["关键词1", "关键词2", ...]`, script)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("LLM call failed: %w", err)
 	}
 
-	terms := []string{}
-	for _, line := range strings.Split(resp, "\n") {
-		line = strings.TrimSpace(line)
-		line = strings.Trim(line, "0123456789.-) ")
-		if line != "" && len(line) > 2 {
-			terms = append(terms, line)
+	resp = cleanJSONResponse(resp)
+
+	var terms []string
+	if err := json.Unmarshal([]byte(resp), &terms); err != nil {
+		// 降级：按行解析
+		for _, line := range strings.Split(resp, "\n") {
+			line = strings.TrimSpace(line)
+			line = strings.Trim(line, "0123456789.-) \"'")
+			if line != "" && len(line) > 2 {
+				terms = append(terms, line)
+			}
 		}
 	}
 
 	if len(terms) == 0 {
-		terms = []string{"finance", "banking", "investment", "stock market", "economy"}
+		terms = []string{"finance", "banking", "investment", "stock market", "economy", "financial district", "trading floor", "bank vault"}
 	}
 
 	return terms, nil
@@ -104,7 +116,7 @@ func callLLM(prompt string, cfg *config.Config) (string, error) {
 			{"role": "user", "content": prompt},
 		},
 		"max_tokens":  2000,
-		"temperature": 0.7,
+		"temperature": 0.8,
 	}
 
 	bodyJSON, _ := json.Marshal(reqBody)
@@ -151,7 +163,6 @@ func callLLM(prompt string, cfg *config.Config) (string, error) {
 // cleanJSONResponse 清理 LLM 返回的 JSON（去除 markdown 包裹）
 func cleanJSONResponse(s string) string {
 	s = strings.TrimSpace(s)
-	// 去除 ```json ... ``` 包裹
 	if strings.HasPrefix(s, "```") {
 		lines := strings.Split(s, "\n")
 		var clean []string
@@ -168,7 +179,16 @@ func cleanJSONResponse(s string) string {
 
 // generateDefaultTerms 生成默认搜索关键词
 func generateDefaultTerms(subject string) []string {
-	return []string{"finance", "banking", "investment", "stock market", "economy"}
+	return []string{
+		"modern bank building exterior daylight",
+		"financial trading floor screens",
+		"business meeting handshake professional",
+		"stock market chart upward trend",
+		"city skyline financial district aerial",
+		"bank vault security door",
+		"chinese bank interior customers",
+		"economic growth graph infographic",
+	}
 }
 
 // maskKey 隐藏 API Key 中间部分

@@ -23,13 +23,16 @@ type VideoParams struct {
 	VideoSource        string   `json:"video_source,omitempty"` // openai_image, pexels, local
 	VideoMaterials     []string `json:"video_materials,omitempty"`
 
+	// VideoTransitionMode 转场模式: none, fade_in, fade_out, slide_in, slide_out, zoom_in, zoom_out, shuffle
+	VideoTransitionMode string `json:"video_transition_mode,omitempty"`
+
 	VoiceName   string  `json:"voice_name,omitempty"`
 	VoiceRate   float64 `json:"voice_rate,omitempty"`
 	VoiceVolume float64 `json:"voice_volume,omitempty"`
 	VoiceMode   string  `json:"voice_mode,omitempty"` // tts, upload, none
 
 	SubtitleEnabled    bool   `json:"subtitle_enabled,omitempty"`
-	SubtitleProvider   string `json:"subtitle_provider,omitempty"`   // edge, whisper
+	SubtitleProvider   string `json:"subtitle_provider,omitempty"`     // edge, whisper
 	SubtitleDisplayMode string `json:"subtitle_display_mode,omitempty"` // sentence, word
 	SubtitleAnimation  string `json:"subtitle_animation,omitempty"`
 	FontName          string `json:"font_name,omitempty"`
@@ -48,16 +51,16 @@ type VideoParams struct {
 
 // TaskResult 任务结果
 type TaskResult struct {
-	TaskID      string      `json:"task_id"`
-	State       int         `json:"state"`
-	Progress    int         `json:"progress"`
+	TaskID      string       `json:"task_id"`
+	State       int          `json:"state"`
+	Progress    int          `json:"progress"`
 	Params      *VideoParams `json:"params,omitempty"`
-	Script      string      `json:"script,omitempty"`
-	SearchTerms []string    `json:"search_terms,omitempty"`
-	VideoPath   string      `json:"video_path,omitempty"`
-	VideoURL    string      `json:"video_url,omitempty"`
-	Error       string      `json:"error,omitempty"`
-	StartTime   time.Time   `json:"start_time"`
-	EndTime     time.Time   `json:"end_time,omitempty"`
-	Videos      []string    `json:"videos,omitempty"`
+	Script      string       `json:"script,omitempty"`
+	SearchTerms []string     `json:"search_terms,omitempty"`
+	VideoPath   string       `json:"video_path,omitempty"`
+	VideoURL    string       `json:"video_url,omitempty"`
+	Error       string       `json:"error,omitempty"`
+	StartTime   time.Time    `json:"start_time"`
+	EndTime     time.Time    `json:"end_time,omitempty"`
+	Videos      []string     `json:"videos,omitempty"`
 }

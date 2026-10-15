@@ -34,7 +34,7 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	processedClips := []string{}
 	for i, clip := range clipPaths {
 		processed := filepath.Join(taskDir, fmt.Sprintf("processed_%03d.mp4", i))
-		err := processOneClip(clip, processed, width, height, clipDuration, params)
+		err := processOneClip(clip, processed, width, height, clipDuration, params, i)
 		if err != nil {
 			utils.LogWarn("failed to process clip %d (%s): %v, skipping", i, clip, err)
 			continue
@@ -56,8 +56,8 @@ func ProcessAndConcatenate(clipPaths []string, outputPath string, audioDuration 
 	return concatClips(allClips, outputPath)
 }
 
-// processOneClip 处理单个片段
-func processOneClip(input, output string, width, height, duration int, params *models.VideoParams) error {
+// processOneClip 处理单个片段：resize + 裁剪到指定时长 + 添加转场效果
+func processOneClip(input, output string, width, height, duration int, params *models.VideoParams, clipIndex int) error {
 	fitMode := params.VideoFitMode
 	if fitMode == "" {
 		fitMode = "cover"
@@ -70,6 +70,18 @@ func processOneClip(input, output string, width, height, duration int, params *m
 	} else {
 		vf = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(%d-iw)/2:(%d-ih)/2:black",
 			width, height, width, height, width, height)
+	}
+
+	// 获取转场模式
+	transitionMode := params.VideoTransitionMode
+	if transitionMode == "" {
+		transitionMode = "shuffle"
+	}
+
+	// 为每个片段选择不同的转场效果
+	transition := selectTransition(transitionMode, clipIndex)
+	if transition != "" {
+		vf = vf + "," + transition
 	}
 
 	args := []string{
@@ -90,6 +102,45 @@ func processOneClip(input, output string, width, height, duration int, params *m
 		return fmt.Errorf("ffmpeg process clip: %w, output: %s", err, string(out))
 	}
 	return nil
+}
+
+// selectTransition 根据转场模式和片段索引选择转场效果
+// 返回 FFmpeg 滤镜片段（不含 -vf 前缀）
+func selectTransition(mode string, clipIndex int) string {
+	// 所有可用转场效果
+	transitions := []string{
+		// fade in from black
+		"fade=t=in:st=0:d=0.5",
+		// fade out to black
+		"fade=t=out:st=4.5:d=0.5",
+		// fade in + fade out
+		"fade=t=in:st=0:d=0.4,fade=t=out:st=4.6:d=0.4",
+		// fade in from white
+		"fade=t=in:st=0:d=0.5:color=white",
+		// fade in from black, slower
+		"fade=t=in:st=0:d=0.8",
+		// fade out to white
+		"fade=t=out:st=4.2:d=0.8:color=white",
+		// fade in + fade out, white
+		"fade=t=in:st=0:d=0.3:color=white,fade=t=out:st=4.7:d=0.3:color=white",
+		// no transition
+		"",
+	}
+
+	switch mode {
+	case "none":
+		return ""
+	case "fade_in":
+		return "fade=t=in:st=0:d=0.5"
+	case "fade_out":
+		return "fade=t=out:st=4.5:d=0.5"
+	case "shuffle":
+		// 随机选择不同的转场效果
+		return transitions[clipIndex%len(transitions)]
+	default:
+		// 尝试匹配已知模式，否则用 shuffle
+		return transitions[clipIndex%len(transitions)]
+	}
 }
 
 // concatClips 用 concat demuxer 拼接
@@ -142,7 +193,6 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 
 	args := []string{"-y", "-i", videoPath, "-i", audioPath}
 
-	// 背景音乐
 	bgmPath := ""
 	hasBGM := false
 	if params.BGMType != "none" && params.BGMType != "" {
@@ -165,16 +215,12 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		}
 	}
 
-	// 构建滤镜
 	if canBurnSubs {
-		// 转义路径中的特殊字符
 		escapedAss := strings.ReplaceAll(assPath, "\\", "/")
 		escapedAss = strings.ReplaceAll(escapedAss, ":", "\\:")
-		// 用 -vf 而非 -filter_complex（更兼容）
 		args = append(args, "-vf", fmt.Sprintf("subtitles=%s", escapedAss))
 	}
 
-	// 音频处理
 	if hasBGM {
 		bgmVol := params.BGMVolume
 		if bgmVol <= 0 {
@@ -186,15 +232,9 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 		af := fmt.Sprintf("[1:a]volume=1.0[a1];[2:a]volume=%.2f,aloop=loop=-1:size=2e9[a2];[a1][a2]amix=inputs=2:duration=first:dropout_transition=0[aout]", bgmVol)
 		args = append(args, "-filter_complex", af, "-map", "0:v", "-map", "[aout]")
 	} else {
-		if canBurnSubs {
-			// -vf 已设置，只需 map 音频
-			args = append(args, "-map", "0:v", "-map", "1:a")
-		} else {
-			args = append(args, "-map", "0:v", "-map", "1:a")
-		}
+		args = append(args, "-map", "0:v", "-map", "1:a")
 	}
 
-	// 编码参数
 	args = append(args,
 		"-c:v", "libx264", "-preset", "medium", "-crf", "20",
 		"-pix_fmt", "yuv420p",
@@ -204,7 +244,6 @@ func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, par
 	)
 
 	utils.LogInfo("running ffmpeg final compose...")
-	utils.LogInfo("ffmpeg args: %v", args)
 	cmd := exec.Command("ffmpeg", args...)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
