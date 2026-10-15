@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -45,21 +46,26 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
 		v1.GET("/templates", s.listTemplates)
 
-		// 素材库 API
+		// 素材库 API（分页）
 		v1.GET("/materials/bgm", s.listBGM)
 		v1.POST("/materials/bgm/upload", s.uploadBGM)
 		v1.DELETE("/materials/bgm/:filename", s.deleteBGM)
-		v1.GET("/materials/bgm/file/:filename", s.serveBGMFile)
-
 		v1.GET("/materials/images", s.listImages)
 		v1.POST("/materials/images/upload", s.uploadImages)
 		v1.DELETE("/materials/images/:filename", s.deleteImage)
-		v1.GET("/materials/images/file/:filename", s.serveImageFile)
-
 		v1.GET("/materials/videos", s.listVideos)
 		v1.POST("/materials/videos/upload", s.uploadVideos)
 		v1.DELETE("/materials/videos/:filename", s.deleteVideo)
+
+		// 静态素材文件
+		v1.GET("/materials/bgm/file/:filename", s.serveBGMFile)
+		v1.GET("/materials/images/file/:filename", s.serveImageFile)
 		v1.GET("/materials/videos/file/:filename", s.serveVideoFile)
+
+		// LLM 配置 API
+		v1.GET("/config", s.getConfig)
+		v1.PUT("/config", s.updateConfig)
+		v1.POST("/config/test", s.testLLM)
 	}
 }
 
@@ -67,7 +73,8 @@ func (s *Server) ping(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "ok", "service": "samvideo"})
 }
 
-// createVideo 提交视频生成任务
+// ==================== Video Generation ====================
+
 func (s *Server) createVideo(c *gin.Context) {
 	var params models.VideoParams
 	if err := c.ShouldBindJSON(&params); err != nil {
@@ -127,26 +134,19 @@ func (s *Server) createVideo(c *gin.Context) {
 }
 
 func (s *Server) listTemplates(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status":  200,
-		"message": "success",
-		"data":    template.BuiltinTemplates,
-	})
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": template.BuiltinTemplates})
 }
 
 func (s *Server) generateScript(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{
-		"status":  200,
-		"message": "success",
-		"note":    "use POST /api/v1/videos with video_subject to generate full video",
-	})
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success"})
 }
 
-// listTasks 支持分页和状态筛选
+// ==================== Tasks ====================
+
 func (s *Server) listTasks(c *gin.Context) {
 	state := 0
-	if s := c.Query("state"); s != "" {
-		state, _ = strconv.Atoi(s)
+	if st := c.Query("state"); st != "" {
+		state, _ = strconv.Atoi(st)
 	}
 	page := 1
 	if p := c.Query("page"); p != "" {
@@ -157,23 +157,14 @@ func (s *Server) listTasks(c *gin.Context) {
 		pageSize, _ = strconv.Atoi(ps)
 	}
 
-	tasks, total, err := task.ListTasksFiltered(s.cfg, task.ListTasksOpts{
-		State:    state,
-		Page:     page,
-		PageSize: pageSize,
-	})
+	tasks, total, err := task.ListTasksFiltered(s.cfg, task.ListTasksOpts{State: state, Page: page, PageSize: pageSize})
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
 	allTasks, _ := task.ListTasks(s.cfg)
-	stateCounts := map[string]int{
-		"all":        len(allTasks),
-		"completed":  0,
-		"processing": 0,
-		"failed":     0,
-	}
+	stateCounts := map[string]int{"all": len(allTasks), "completed": 0, "processing": 0, "failed": 0}
 	for _, t := range allTasks {
 		switch t.State {
 		case models.TaskStateComplete:
@@ -194,13 +185,8 @@ func (s *Server) listTasks(c *gin.Context) {
 		"status":  200,
 		"message": "success",
 		"data":    tasks,
-		"pagination": gin.H{
-			"page":        page,
-			"page_size":   pageSize,
-			"total":       total,
-			"total_pages": totalPages,
-		},
-		"counts": stateCounts,
+		"pagination": gin.H{"page": page, "page_size": pageSize, "total": total, "total_pages": totalPages},
+		"counts":  stateCounts,
 	})
 }
 
@@ -260,9 +246,9 @@ func (s *Server) streamFile(c *gin.Context) {
 	c.File(filePath)
 }
 
-// ==================== 素材库 API ====================
+// ==================== Materials Library (paginated) ====================
 
-type MaterialItem struct {
+type MatItem struct {
 	Name string `json:"name"`
 	Size int64  `json:"size"`
 	URL  string `json:"url"`
@@ -271,23 +257,55 @@ type MaterialItem struct {
 func (s *Server) listBGM(c *gin.Context) {
 	bgmDir := filepath.Join(s.cfg.ResourceDir, "songs", "downloaded")
 	os.MkdirAll(bgmDir, 0755)
-	items := scanDir(bgmDir, isAudioFile, "/api/v1/materials/bgm/file/%s")
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
+	items := scanMaterialDir(bgmDir, "/api/v1/materials/bgm/file/", isAudioFile)
+	s.respondMaterials(c, items)
 }
 
 func (s *Server) uploadBGM(c *gin.Context) {
 	bgmDir := filepath.Join(s.cfg.ResourceDir, "songs", "downloaded")
 	os.MkdirAll(bgmDir, 0755)
-	uploaded, err := saveUploads(c, bgmDir, "file", isAudioFile)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
+	uploaded := s.handleUpload(c, bgmDir, "file", isAudioFile)
 	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
 }
 
 func (s *Server) deleteBGM(c *gin.Context) {
-	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "songs", "downloaded"))
+	s.handleDelete(c, filepath.Join(s.cfg.ResourceDir, "songs", "downloaded"))
+}
+
+func (s *Server) listImages(c *gin.Context) {
+	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
+	os.MkdirAll(imgDir, 0755)
+	items := scanMaterialDir(imgDir, "/api/v1/materials/images/file/", isImageFile)
+	s.respondMaterials(c, items)
+}
+
+func (s *Server) uploadImages(c *gin.Context) {
+	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
+	os.MkdirAll(imgDir, 0755)
+	uploaded := s.handleUpload(c, imgDir, "files", isImageFile)
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
+}
+
+func (s *Server) deleteImage(c *gin.Context) {
+	s.handleDelete(c, filepath.Join(s.cfg.ResourceDir, "images"))
+}
+
+func (s *Server) listVideos(c *gin.Context) {
+	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
+	os.MkdirAll(vidDir, 0755)
+	items := scanMaterialDir(vidDir, "/api/v1/materials/videos/file/", isVideoFile)
+	s.respondMaterials(c, items)
+}
+
+func (s *Server) uploadVideos(c *gin.Context) {
+	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
+	os.MkdirAll(vidDir, 0755)
+	uploaded := s.handleUpload(c, vidDir, "files", isVideoFile)
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
+}
+
+func (s *Server) deleteVideo(c *gin.Context) {
+	s.handleDelete(c, filepath.Join(s.cfg.ResourceDir, "videos"))
 }
 
 func (s *Server) serveBGMFile(c *gin.Context) {
@@ -303,28 +321,6 @@ func (s *Server) serveBGMFile(c *gin.Context) {
 	}
 	c.Header("Content-Type", "audio/mpeg")
 	c.File(filePath)
-}
-
-func (s *Server) listImages(c *gin.Context) {
-	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
-	os.MkdirAll(imgDir, 0755)
-	items := scanDir(imgDir, isImageFile, "/api/v1/materials/images/file/%s")
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
-}
-
-func (s *Server) uploadImages(c *gin.Context) {
-	imgDir := filepath.Join(s.cfg.ResourceDir, "images")
-	os.MkdirAll(imgDir, 0755)
-	uploaded, err := saveUploads(c, imgDir, "files", isImageFile)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
-}
-
-func (s *Server) deleteImage(c *gin.Context) {
-	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "images"))
 }
 
 func (s *Server) serveImageFile(c *gin.Context) {
@@ -352,28 +348,6 @@ func (s *Server) serveImageFile(c *gin.Context) {
 	c.File(filePath)
 }
 
-func (s *Server) listVideos(c *gin.Context) {
-	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
-	os.MkdirAll(vidDir, 0755)
-	items := scanDir(vidDir, isVideoFile, "/api/v1/materials/videos/file/%s")
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success", "data": items, "total": len(items)})
-}
-
-func (s *Server) uploadVideos(c *gin.Context) {
-	vidDir := filepath.Join(s.cfg.ResourceDir, "videos")
-	os.MkdirAll(vidDir, 0755)
-	uploaded, err := saveUploads(c, vidDir, "files", isVideoFile)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "uploaded", "data": gin.H{"uploaded": uploaded, "count": len(uploaded)}})
-}
-
-func (s *Server) deleteVideo(c *gin.Context) {
-	s.deleteMaterial(c, filepath.Join(s.cfg.ResourceDir, "videos"))
-}
-
 func (s *Server) serveVideoFile(c *gin.Context) {
 	filename := c.Param("filename")
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
@@ -389,41 +363,76 @@ func (s *Server) serveVideoFile(c *gin.Context) {
 	c.File(filePath)
 }
 
-// ==================== Helpers ====================
+// Helpers
 
-func scanDir(dir string, filter func(string) bool, urlTmpl string) []MaterialItem {
+func scanMaterialDir(dir, urlPrefix string, filter func(string) bool) []MatItem {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return []MaterialItem{}
+		return nil
 	}
-	var items []MaterialItem
+	var items []MatItem
 	for _, e := range entries {
-		if e.IsDir() || !filter(e.Name()) {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !filter(name) {
 			continue
 		}
 		info, _ := e.Info()
-		items = append(items, MaterialItem{
-			Name: e.Name(),
+		items = append(items, MatItem{
+			Name: name,
 			Size: info.Size(),
-			URL:  fmt.Sprintf(urlTmpl, e.Name()),
+			URL:  urlPrefix + name,
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
 	return items
 }
 
-func saveUploads(c *gin.Context, dir, field string, filter func(string) bool) ([]string, error) {
+func (s *Server) respondMaterials(c *gin.Context, items []MatItem) {
+	page := 1
+	if p := c.Query("page"); p != "" {
+		page, _ = strconv.Atoi(p)
+	}
+	pageSize := 30
+	if ps := c.Query("size"); ps != "" {
+		pageSize, _ = strconv.Atoi(ps)
+	}
+	total := len(items)
+	totalPages := (total + pageSize - 1) / pageSize
+	if totalPages == 0 {
+		totalPages = 1
+	}
+	start := (page - 1) * pageSize
+	if start >= total {
+		start = total
+	}
+	end := start + pageSize
+	if end > total {
+		end = total
+	}
+	var paged []MatItem
+	if start < end {
+		paged = items[start:end]
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"status":  200,
+		"message": "success",
+		"data":    paged,
+		"pagination": gin.H{"page": page, "page_size": pageSize, "total": total, "total_pages": totalPages},
+	})
+}
+
+func (s *Server) handleUpload(c *gin.Context, dir, fieldName string, filter func(string) bool) []string {
 	form, err := c.MultipartForm()
 	if err != nil {
-		return nil, fmt.Errorf("no files uploaded")
+		return nil
 	}
-	files := form.File[field]
+	files := form.File[fieldName]
 	if len(files) == 0 {
-		// try "file" as fallback
+		// try "file" singular
 		files = form.File["file"]
-	}
-	if len(files) == 0 {
-		return nil, fmt.Errorf("no files found in field '%s' or 'file'", field)
 	}
 	var uploaded []string
 	for _, header := range files {
@@ -436,10 +445,10 @@ func saveUploads(c *gin.Context, dir, field string, filter func(string) bool) ([
 		}
 		uploaded = append(uploaded, header.Filename)
 	}
-	return uploaded, nil
+	return uploaded
 }
 
-func (s *Server) deleteMaterial(c *gin.Context, dir string) {
+func (s *Server) handleDelete(c *gin.Context, dir string) {
 	filename := c.Param("filename")
 	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid filename"})
@@ -468,5 +477,226 @@ func isVideoFile(name string) bool {
 	return ext == ".mp4" || ext == ".avi" || ext == ".mov" || ext == ".mkv" || ext == ".webm" || ext == ".flv"
 }
 
-// avoid unused import
-var _ = io.Copy
+// ==================== LLM Config API ====================
+
+func (s *Server) getConfig(c *gin.Context) {
+	cfg := s.cfg
+	c.JSON(http.StatusOK, gin.H{
+		"status":  200,
+		"message": "success",
+		"data": gin.H{
+			"llm_provider":          cfg.LLMProvider,
+			"llm_base_url":          cfg.OpenAI.BaseURL,
+			"llm_model":             cfg.OpenAI.ModelName,
+			"llm_api_key_masked":    maskKey(cfg.OpenAI.APIKey),
+			"image_base_url":        cfg.OpenAIImageBaseURL,
+			"image_model":           cfg.OpenAIImageModel,
+			"image_size":            cfg.OpenAIImageSize,
+			"image_api_key_masked":  maskKey(getFirstKey(cfg.OpenAIImageAPIKeys)),
+			"video_source":          cfg.VideoSource,
+			"subtitle_provider":     cfg.SubtitleProvider,
+			"bgm_type":              cfg.BGMType,
+			"bgm_volume":            cfg.BGMVolume,
+			"voice_name":            "",
+			"voice_rate":            1.0,
+			"video_clip_duration":   5,
+			"video_clip_speed":      1.0,
+			"video_transition_mode": "shuffle",
+		},
+	})
+}
+
+func (s *Server) updateConfig(c *gin.Context) {
+	var req struct {
+		LLMProvider       *string  `json:"llm_provider"`
+		LLMBaseURL        *string  `json:"llm_base_url"`
+		LLMModel          *string  `json:"llm_model"`
+		LLMAPIKey         *string  `json:"llm_api_key"`
+		ImageBaseURL      *string  `json:"image_base_url"`
+		ImageModel        *string  `json:"image_model"`
+		ImageSize         *string  `json:"image_size"`
+		ImageAPIKey       *string  `json:"image_api_key"`
+		VideoSource       *string  `json:"video_source"`
+		SubtitleProvider  *string  `json:"subtitle_provider"`
+		BGMType           *string  `json:"bgm_type"`
+		BGMVolume         *float64 `json:"bgm_volume"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	cfg := s.cfg
+
+	if req.LLMProvider != nil {
+		cfg.LLMProvider = *req.LLMProvider
+	}
+	if req.LLMBaseURL != nil {
+		cfg.OpenAI.BaseURL = *req.LLMBaseURL
+	}
+	if req.LLMModel != nil {
+		cfg.OpenAI.ModelName = *req.LLMModel
+	}
+	if req.LLMAPIKey != nil && *req.LLMAPIKey != "" && !strings.HasPrefix(*req.LLMAPIKey, "****") {
+		cfg.OpenAI.APIKey = *req.LLMAPIKey
+	}
+	if req.ImageBaseURL != nil {
+		cfg.OpenAIImageBaseURL = *req.ImageBaseURL
+	}
+	if req.ImageModel != nil {
+		cfg.OpenAIImageModel = *req.ImageModel
+	}
+	if req.ImageSize != nil {
+		cfg.OpenAIImageSize = *req.ImageSize
+	}
+	if req.ImageAPIKey != nil && *req.ImageAPIKey != "" && !strings.HasPrefix(*req.ImageAPIKey, "****") {
+		cfg.OpenAIImageAPIKeys = []string{*req.ImageAPIKey}
+	}
+	if req.VideoSource != nil {
+		cfg.VideoSource = *req.VideoSource
+	}
+	if req.SubtitleProvider != nil {
+		cfg.SubtitleProvider = *req.SubtitleProvider
+	}
+	if req.BGMType != nil {
+		cfg.BGMType = *req.BGMType
+	}
+	if req.BGMVolume != nil {
+		cfg.BGMVolume = *req.BGMVolume
+	}
+
+	// 保存到 config.toml
+	s.saveConfigToFile(cfg)
+
+	// 更新全局配置
+	config.Update(cfg)
+
+	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "config updated"})
+}
+
+func (s *Server) testLLM(c *gin.Context) {
+	cfg := s.cfg
+	if cfg.OpenAI.BaseURL == "" || cfg.OpenAI.APIKey == "" || cfg.OpenAI.ModelName == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "LLM not configured"})
+		return
+	}
+
+	// 简单测试：发送一个 hello 请求
+	url := strings.TrimSuffix(cfg.OpenAI.BaseURL, "/") + "/chat/completions"
+	reqBody := map[string]interface{}{
+		"model": cfg.OpenAI.ModelName,
+		"messages": []map[string]string{
+			{"role": "user", "content": "请回复'你好'两个字"},
+		},
+		"max_tokens": 50,
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+cfg.OpenAI.APIKey)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	if resp.StatusCode != 200 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))})
+		return
+	}
+
+	var result struct {
+		Choices []struct {
+			Message struct {
+				Content string `json:"content"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	json.Unmarshal(body, &result)
+
+	reply := ""
+	if len(result.Choices) > 0 {
+		reply = result.Choices[0].Message.Content
+	}
+
+	c.JSON(http.StatusOK, gin.H{"ok": true, "reply": reply, "model": cfg.OpenAI.ModelName})
+}
+
+func (s *Server) saveConfigToFile(cfg *config.Config) {
+	configPath := "config.toml"
+	var lines []string
+
+	lines = append(lines, "# SamVideo configuration (auto-updated via Web UI)")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("log_level = \"%s\"", cfg.LogLevel))
+	lines = append(lines, fmt.Sprintf("listen_host = \"%s\"", cfg.ListenHost))
+	lines = append(lines, fmt.Sprintf("listen_port = %d", cfg.ListenPort))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("edge_tts_timeout = %d", cfg.EdgeTTS.Timeout))
+	lines = append(lines, fmt.Sprintf("video_source = \"%s\"", cfg.VideoSource))
+	lines = append(lines, "pexels_api_keys = []")
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("openai_image_base_url = \"%s\"", cfg.OpenAIImageBaseURL))
+	imageKey := getFirstKey(cfg.OpenAIImageAPIKeys)
+	lines = append(lines, fmt.Sprintf("openai_image_api_keys = [\"%s\"]", imageKey))
+	lines = append(lines, fmt.Sprintf("openai_image_model = \"%s\"", cfg.OpenAIImageModel))
+	lines = append(lines, fmt.Sprintf("openai_image_size = \"%s\"", cfg.OpenAIImageSize))
+	lines = append(lines, fmt.Sprintf("openai_image_prompt_template = \"{keyword}\""))
+	lines = append(lines, "")
+	lines = append(lines, fmt.Sprintf("llm_provider = \"%s\"", cfg.LLMProvider))
+	lines = append(lines, fmt.Sprintf("subtitle_provider = \"%s\"", cfg.SubtitleProvider))
+	lines = append(lines, fmt.Sprintf("bgm_type = \"%s\"", cfg.BGMType))
+	lines = append(lines, fmt.Sprintf("bgm_volume = %.2f", cfg.BGMVolume))
+	lines = append(lines, "")
+	lines = append(lines, "[app]")
+	lines = append(lines, fmt.Sprintf("api_key = \"%s\"", cfg.App.APIKey))
+	lines = append(lines, fmt.Sprintf("tls_verify = %v", cfg.App.TLSVerify))
+	lines = append(lines, "")
+	lines = append(lines, "[openai]")
+	lines = append(lines, fmt.Sprintf("api_key = \"%s\"", cfg.OpenAI.APIKey))
+	lines = append(lines, fmt.Sprintf("base_url = \"%s\"", cfg.OpenAI.BaseURL))
+	lines = append(lines, fmt.Sprintf("model_name = \"%s\"", cfg.OpenAI.ModelName))
+	lines = append(lines, "")
+	lines = append(lines, "[anthropic]")
+	lines = append(lines, "api_key = \"\"")
+	lines = append(lines, "base_url = \"\"")
+	lines = append(lines, "model_name = \"\"")
+	lines = append(lines, "")
+	lines = append(lines, "[gemini]")
+	lines = append(lines, "api_key = \"\"")
+	lines = append(lines, "")
+	lines = append(lines, "[moonshot]")
+	lines = append(lines, "api_key = \"\"")
+	lines = append(lines, "base_url = \"\"")
+	lines = append(lines, "model_name = \"\"")
+	lines = append(lines, "")
+	lines = append(lines, "[whisper]")
+	lines = append(lines, "model_path = \"\"")
+	lines = append(lines, "use_gpu = false")
+	lines = append(lines, "")
+
+	os.WriteFile(configPath, []byte(strings.Join(lines, "\n")), 0644)
+}
+
+func maskKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
+}
+
+func getFirstKey(keys []string) string {
+	if len(keys) > 0 {
+		return keys[0]
+	}
+	return ""
+}

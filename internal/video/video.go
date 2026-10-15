@@ -2,6 +2,7 @@ package video
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -312,21 +313,49 @@ func selectBGM(cfg *config.Config, params *models.VideoParams) string {
 		utils.LogWarn("specified BGM file not found: %s", params.BGMFile)
 	}
 
-	songsDir := filepath.Join(cfg.ResourceDir, "songs")
-	entries, err := os.ReadDir(songsDir)
-	if err != nil || len(entries) == 0 {
-		utils.LogWarn("no BGM found in %s", songsDir)
+	// 1. 优先从 downloaded/ 目录随机选择
+	downloadedDir := filepath.Join(cfg.ResourceDir, "songs", "downloaded")
+	var bgmFiles []string
+	if entries, err := os.ReadDir(downloadedDir); err == nil {
+		for _, entry := range entries {
+			if entry.IsDir() {
+				continue
+			}
+			name := entry.Name()
+			if isAudioExt(name) {
+				bgmFiles = append(bgmFiles, filepath.Join(downloadedDir, name))
+			}
+		}
+	}
+
+	// 2. 回退到 songs/ 根目录
+	if len(bgmFiles) == 0 {
+		songsDir := filepath.Join(cfg.ResourceDir, "songs")
+		if entries, err := os.ReadDir(songsDir); err == nil {
+			for _, entry := range entries {
+				if entry.IsDir() {
+					continue
+				}
+				name := entry.Name()
+				if isAudioExt(name) {
+					bgmFiles = append(bgmFiles, filepath.Join(songsDir, name))
+				}
+			}
+		}
+	}
+
+	if len(bgmFiles) == 0 {
+		utils.LogWarn("no BGM found in %s/songs/downloaded/", cfg.ResourceDir)
 		return ""
 	}
 
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
-		}
-		name := entry.Name()
-		if strings.HasSuffix(name, ".mp3") || strings.HasSuffix(name, ".m4a") || strings.HasSuffix(name, ".wav") {
-			return filepath.Join(songsDir, name)
-		}
-	}
-	return ""
+	// 随机选择
+	idx := rand.Intn(len(bgmFiles))
+	utils.LogInfo("BGM selected: %s (from %d files)", filepath.Base(bgmFiles[idx]), len(bgmFiles))
+	return bgmFiles[idx]
+}
+
+func isAudioExt(name string) bool {
+	ext := strings.ToLower(filepath.Ext(name))
+	return ext == ".mp3" || ext == ".m4a" || ext == ".wav" || ext == ".ogg" || ext == ".flac"
 }
