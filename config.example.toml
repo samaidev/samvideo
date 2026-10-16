@@ -1,13 +1,10 @@
 # SamVideo configuration example
 # Copy to config.toml and edit with your API keys
 
+# ---- Top-level settings (MUST be before any [section]) ----
 log_level = "INFO"
 listen_host = "0.0.0.0"
 listen_port = 8080
-
-[app]
-api_key = ""
-tls_verify = true
 
 edge_tts_timeout = 30
 
@@ -18,7 +15,6 @@ video_source = "openai_image"
 pexels_api_keys = []
 
 # OpenAI-compatible text-to-image material source
-# Generates one image per script keyword, then renders it into a video clip
 openai_image_base_url = "https://apishare.cc/v1"
 openai_image_api_keys = ["aps-1043a9a4aaee874c"]
 openai_image_model = "Agnes/agnes-image-2.5-flash"
@@ -28,15 +24,45 @@ openai_image_prompt_template = "{keyword}"
 # LLM provider: "openai", "anthropic", "gemini", "moonshot"
 llm_provider = "openai"
 
-# OpenAI-compatible LLM (supports DeepSeek/Qwen/Kimi etc via base_url)
-[openai]
-api_key = "aps-1043a9a4aaee874c"
-base_url = "https://apishare.cc/v1"
-model_name = "ApiShare/zhipu/glm-5.2:free"
-
 # Subtitle provider: "edge" (uses TTS timestamps) or "whisper" (ASR)
 subtitle_provider = "edge"
 
 # Background music: "random", "custom", "none"
 bgm_type = "random"
 bgm_volume = 0.2
+
+# Public base URL for digital human mode (Agnes Video API needs to access local files)
+public_base_url = ""
+
+# Video generation model (Agnes Video API)
+video_api_base_url = ""
+video_api_keys = []
+video_model = ""
+
+# ---- Sections (all top-level fields MUST be above this line) ----
+
+[app]
+api_key = ""
+tls_verify = true
+
+[openai]
+api_key = "aps-1043a9a4aaee874c"
+base_url = "https://apishare.cc/v1"
+model_name = "ApiShare/zhipu/glm-5.2:free"
+
+[anthropic]
+api_key = ""
+base_url = ""
+model_name = ""
+
+[gemini]
+api_key = ""
+
+[moonshot]
+api_key = ""
+base_url = ""
+model_name = ""
+
+[whisper]
+model_path = ""
+use_gpu = false

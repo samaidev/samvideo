@@ -21,14 +21,18 @@ import (
 
 var pngHeader = []byte{0x89, 0x50, 0x4E, 0x47} // PNG 魔数
 
-// GenerateImages 调用文生图 API 生成图片并转为视频片段
-func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *models.VideoParams) ([]string, error) {
-	if len(terms) == 0 {
-		return nil, fmt.Errorf("no search terms provided")
+// GenerateImagesFromPrompts 用具体的画面描述（image_prompt）生成图片并转为视频片段
+// 每个 prompt 直接作为文生图的输入，不加随机风格后缀，确保图文一致
+func GenerateImagesFromPrompts(prompts []string, taskDir string, cfg *config.Config, params *models.VideoParams) ([]string, error) {
+	if len(prompts) == 0 {
+		return nil, fmt.Errorf("no image prompts provided")
 	}
 
 	baseURL := cfg.OpenAIImageBaseURL
-	apiKey := cfg.OpenAIImageAPIKeys[0]
+	apiKey := ""
+	if len(cfg.OpenAIImageAPIKeys) > 0 {
+		apiKey = cfg.OpenAIImageAPIKeys[0]
+	}
 	model := cfg.OpenAIImageModel
 	size := cfg.OpenAIImageSize
 	if size == "" {
@@ -41,16 +45,8 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 
 	var clipPaths []string
 
-	for i, term := range terms {
-		utils.LogInfo("generating image %d/%d: term=%s, model=%s, size=%s", i+1, len(terms), term, model, size)
-
-		var prompt string
-		promptTmpl := cfg.OpenAIImagePromptTmpl
-		if promptTmpl == "" || promptTmpl == "{keyword}" {
-			prompt = buildDiversePrompt(term, i, len(terms))
-		} else {
-			prompt = strings.ReplaceAll(promptTmpl, "{keyword}", term)
-		}
+	for i, prompt := range prompts {
+		utils.LogInfo("generating image %d/%d: prompt=%s", i+1, len(prompts), truncate(prompt, 80))
 
 		var imageData []byte
 		var genErr error
@@ -68,13 +64,13 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 		}
 
 		if genErr != nil || !isValidPNG(imageData) {
-			utils.LogWarn("failed to generate valid image for term %s after retries, skipping", term)
+			utils.LogWarn("failed to generate valid image for prompt %d after retries, skipping", i+1)
 			continue
 		}
 
 		imgPath := filepath.Join(taskDir, fmt.Sprintf("image_%03d.png", i))
 		if err := os.WriteFile(imgPath, imageData, 0644); err != nil {
-			utils.LogWarn("failed to save image %s: %v, skipping", term, err)
+			utils.LogWarn("failed to save image %d: %v, skipping", i, err)
 			continue
 		}
 		utils.LogInfo("image saved: %s (%d bytes)", imgPath, len(imageData))
@@ -102,8 +98,30 @@ func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *
 		return nil, fmt.Errorf("no clips generated successfully")
 	}
 
-	utils.LogInfo("generated %d clips from %d terms", len(clipPaths), len(terms))
+	utils.LogInfo("generated %d clips from %d prompts", len(clipPaths), len(prompts))
 	return clipPaths, nil
+}
+
+// GenerateImages 调用文生图 API 生成图片并转为视频片段（旧模式，用搜索词+风格后缀）
+func GenerateImages(terms []string, taskDir string, cfg *config.Config, params *models.VideoParams) ([]string, error) {
+	if len(terms) == 0 {
+		return nil, fmt.Errorf("no search terms provided")
+	}
+
+	// 把搜索词转为带风格后缀的 prompt
+	var prompts []string
+	for i, term := range terms {
+		prompts = append(prompts, buildDiversePrompt(term, i, len(terms)))
+	}
+
+	return GenerateImagesFromPrompts(prompts, taskDir, cfg, params)
+}
+
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 func isValidPNG(data []byte) bool {
@@ -144,7 +162,7 @@ func generateOneImage(baseURL, apiKey, model, size, prompt string) ([]byte, erro
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 60 * time.Second}
+	client := &http.Client{Timeout: 120 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
@@ -174,13 +192,13 @@ func generateOneImage(baseURL, apiKey, model, size, prompt string) ([]byte, erro
 		return decoded, nil
 	}
 	if result.Data[0].URL != "" {
-		client2 := &http.Client{Timeout: 60 * time.Second}
-		resp, err := client2.Get(result.Data[0].URL)
+		client2 := &http.Client{Timeout: 120 * time.Second}
+		resp2, err := client2.Get(result.Data[0].URL)
 		if err != nil {
 			return nil, fmt.Errorf("download image: %w", err)
 		}
-		defer resp.Body.Close()
-		return io.ReadAll(resp.Body)
+		defer resp2.Body.Close()
+		return io.ReadAll(resp2.Body)
 	}
 	return nil, fmt.Errorf("image API returned no image data")
 }
@@ -241,11 +259,9 @@ func imageToVideoClip(imgPath, outputPath string, duration int, params *models.V
 }
 
 // GetLocalMaterials 从本地资源目录获取素材（图片+视频）
-// 搜索 resource/images/ 和 resource/videos/ 目录
 func GetLocalMaterials(resourceDir, taskDir string, count int) ([]string, error) {
 	var clips []string
 
-	// 1. 搜索 resource/videos/ 目录下的视频文件
 	videosDir := filepath.Join(resourceDir, "videos")
 	if entries, err := os.ReadDir(videosDir); err == nil {
 		for _, entry := range entries {
@@ -259,7 +275,6 @@ func GetLocalMaterials(resourceDir, taskDir string, count int) ([]string, error)
 		}
 	}
 
-	// 2. 搜索 resource/images/ 目录下的图片文件，转为视频片段
 	imagesDir := filepath.Join(resourceDir, "images")
 	if entries, err := os.ReadDir(imagesDir); err == nil {
 		for i, entry := range entries {
@@ -278,7 +293,6 @@ func GetLocalMaterials(resourceDir, taskDir string, count int) ([]string, error)
 		}
 	}
 
-	// 3. 向后兼容：搜索 resource/materials/ 目录
 	materialsDir := filepath.Join(resourceDir, "materials")
 	if entries, err := os.ReadDir(materialsDir); err == nil {
 		for _, entry := range entries {

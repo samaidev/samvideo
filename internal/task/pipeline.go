@@ -112,9 +112,9 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		}
 	}
 
-	// Step 1: LLM 脚本生成
-	utils.LogInfo("step 1: generating script via LLM...")
-	script, terms, err := p.generateScript(params, tmpl)
+	// Step 1: LLM 分镜脚本生成（优先用分镜模式，确保图文一致）
+	utils.LogInfo("step 1: generating scene-based script via LLM...")
+	script, imagePrompts, scenes, err := p.generateScriptWithScenes(params, tmpl)
 	if err != nil {
 		result.State = models.TaskStateFailed
 		result.Error = fmt.Sprintf("script generation failed: %v", err)
@@ -123,12 +123,13 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		return result, err
 	}
 	result.Script = script
-	result.SearchTerms = terms
+	result.SearchTerms = imagePrompts
 	save(10)
 
 	scriptData, _ := json.MarshalIndent(map[string]interface{}{
 		"script":       script,
-		"search_terms": terms,
+		"image_prompts": imagePrompts,
+		"scenes":       scenes,
 		"params":       params,
 		"template":     tmpl,
 	}, "", "  ")
@@ -159,9 +160,9 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	}
 	save(30)
 
-	// Step 4: 素材
-	utils.LogInfo("step 4: fetching video materials...")
-	clipPaths, err := p.fetchMaterials(terms, taskDir, params)
+	// Step 4: 素材——用分镜的 image_prompt 直接生成图片，确保图文一致
+	utils.LogInfo("step 4: fetching video materials (scene-based prompts)...")
+	clipPaths, err := p.fetchMaterialsScene(imagePrompts, taskDir, params)
 	if err != nil {
 		result.State = models.TaskStateFailed
 		result.Error = fmt.Sprintf("material fetch failed: %v", err)
@@ -227,6 +228,73 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	return result, nil
 }
 
+// generateScriptWithScenes 使用分镜模式生成脚本
+// 优先调用 llm.GenerateScriptWithScenes，失败时降级到旧模式
+func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *template.Template) (string, []string, []llm.Scene, error) {
+	// 如果用户提供了自定义脚本，直接用
+	if params.VideoScript != "" {
+		terms := params.VideoTerms
+		if len(terms) == 0 {
+			generatedTerms, err := llm.GenerateTerms(params.VideoScript, p.cfg)
+			if err == nil {
+				terms = generatedTerms
+			}
+		}
+		// 自定义脚本没有分镜信息，返回空 scenes
+		return params.VideoScript, terms, nil, nil
+	}
+
+	// 确定分镜数量
+	sceneCount := 6
+	if tmpl != nil && tmpl.ImageCount > 0 {
+		sceneCount = tmpl.ImageCount
+	}
+
+	// 获取模板的脚本提示词
+	scriptPrompt := ""
+	if tmpl != nil {
+		scriptPrompt = tmpl.GetScriptPrompt()
+	}
+
+	// 调用分镜模式
+	script, imagePrompts, scenes, err := llm.GenerateScriptWithScenes(params.VideoSubject, scriptPrompt, sceneCount, p.cfg)
+	if err != nil {
+		utils.LogWarn("scene-based script generation failed: %v, falling back to legacy mode", err)
+		// 降级到旧模式
+		script2, terms2, err2 := llm.GenerateScriptWithPrompt(params.VideoSubject, scriptPrompt, sceneCount, p.cfg)
+		if err2 != nil {
+			return "", nil, nil, err2
+		}
+		return script2, terms2, nil, nil
+	}
+
+	// 如果分镜模式返回了 scenes，用 scene 的 image_prompt 作为图片生成提示词
+	if len(scenes) > 0 {
+		utils.LogInfo("scene-based script: %d scenes, %d image prompts", len(scenes), len(imagePrompts))
+		return script, imagePrompts, scenes, nil
+	}
+
+	// 分镜模式降级了，返回旧模式结果
+	utils.LogInfo("script generated via legacy mode: %d chars, %d terms", len(script), len(imagePrompts))
+	return script, imagePrompts, nil, nil
+}
+
+// fetchMaterialsScene 用分镜的 image_prompt 生成图片素材
+func (p *Pipeline) fetchMaterialsScene(imagePrompts []string, taskDir string, params *models.VideoParams) ([]string, error) {
+	source := params.VideoSource
+	if source == "" {
+		source = p.cfg.VideoSource
+	}
+
+	switch source {
+	case "local":
+		return material.GetLocalMaterials(p.cfg.ResourceDir, taskDir, len(imagePrompts))
+	default:
+		// 用分镜的 image_prompt 直接生成图片，不加随机风格后缀
+		return material.GenerateImagesFromPrompts(imagePrompts, taskDir, p.cfg, params)
+	}
+}
+
 // runDigitalHuman 数字人口播模式
 // 流程: LLM脚本 → TTS语音 → (人脸照片+语音 → Agnes Video reference模式 → 说话视频) → BGM混音 → 成品
 func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoParams, result *models.TaskResult, save func(int)) (*models.TaskResult, error) {
@@ -265,7 +333,6 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 		videoSeconds = 4
 	}
 	if videoSeconds > 12 {
-		// Agnes Video 限制 4-12 秒，需要分段
 		utils.LogInfo("DH: audio duration %.1fs exceeds 12s limit, will generate multiple segments", audioDuration)
 	}
 
@@ -275,10 +342,8 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 	// Step 4: 生成数字人视频
 	utils.LogInfo("DH step 4: generating digital human video via Agnes Video API...")
 
-	// 获取人脸照片 URL
 	portraitURL := params.DigitalHumanPortrait
 	if portraitURL == "" {
-		// 如果没有提供照片，用文生图生成一个
 		utils.LogInfo("DH: no portrait provided, generating one via image API...")
 		portraitPath := filepath.Join(taskDir, "portrait.png")
 		portraitURL, err = p.generatePortrait(params, portraitPath)
@@ -291,9 +356,6 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 		}
 	}
 
-	// 音频需要公开可访问的 URL
-	// 由于本地音频没有公开 URL，我们需要先上传或使用 base64
-	// 方案：启动一个临时 HTTP 服务来提供音频文件
 	audioURL, cleanup, err := p.serveFileTemporarily(audioPath, taskID)
 	if err != nil {
 		result.State = models.TaskStateFailed
@@ -304,7 +366,6 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 	}
 	defer cleanup()
 
-	// 如果照片也是本地文件，同样需要公开 URL
 	if !isURL(portraitURL) {
 		portraitURL2, cleanup2, err := p.serveFileTemporarily(portraitURL, taskID)
 		if err == nil {
@@ -313,7 +374,6 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 		}
 	}
 
-	// 调用 Agnes Video API 生成数字人视频
 	agnesClient := video.NewAgnesVideoClient(p.cfg)
 	aspectRatio := params.VideoAspect
 	if aspectRatio == "" {
@@ -322,12 +382,10 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 
 	finalVideoPath := filepath.Join(taskDir, "final.mp4")
 
-	// 如果音频 <= 12秒，直接生成一段视频
-	if videoSeconds <= 12 {
+	if videoSeconds < 12 {
 		utils.LogInfo("DH: generating single segment video (%ds)...", videoSeconds)
 		_, err = agnesClient.GenerateDigitalHumanVideo(portraitURL, audioURL, aspectRatio, videoSeconds, finalVideoPath)
 	} else {
-		// 音频 > 12秒，生成多段视频然后拼接
 		utils.LogInfo("DH: generating multiple segments for %.1fs audio...", audioDuration)
 		_, err = p.generateMultiSegmentDigitalHuman(agnesClient, portraitURL, audioURL, aspectRatio, audioDuration, taskDir, finalVideoPath)
 	}
@@ -348,7 +406,6 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 		if bgmErr != nil {
 			utils.LogWarn("BGM ensure failed: %v, skipping BGM", bgmErr)
 		}
-		// BGM 混音在 FinalCompose 中处理，但数字人模式需要单独处理
 		bgmPath := video.SelectBGM(p.cfg)
 		if bgmPath != "" {
 			bgmMixedPath := filepath.Join(taskDir, "with_bgm.mp4")
@@ -361,8 +418,7 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 		}
 	}
 
-	// Step 6: 音频替换（用原始 TTS 音频替换视频中的音频）
-	// Agnes Video 生成的视频可能有自己的音频，我们需要用 TTS 音频替换
+	// Step 6: 音频替换
 	utils.LogInfo("DH step 6: replacing audio with TTS...")
 	audioReplacedPath := filepath.Join(taskDir, "final_audio.mp4")
 	err = video.ReplaceAudio(finalVideoPath, audioPath, audioReplacedPath)
@@ -395,7 +451,7 @@ func (p *Pipeline) runDigitalHuman(taskID, taskDir string, params *models.VideoP
 
 // generateMultiSegmentDigitalHuman 生成多段数字人视频并拼接
 func (p *Pipeline) generateMultiSegmentDigitalHuman(client *video.AgnesVideoClient, portraitURL, audioURL, aspectRatio string, totalDuration float64, taskDir, finalPath string) (string, error) {
-	segmentDuration := 12 // 每段最多12秒
+	segmentDuration := 12
 	numSegments := int(totalDuration) / segmentDuration
 	if int(totalDuration)%segmentDuration != 0 {
 		numSegments++
@@ -412,7 +468,7 @@ func (p *Pipeline) generateMultiSegmentDigitalHuman(client *video.AgnesVideoClie
 		}
 		segDuration := endSec - startSec
 		if segDuration < 4 {
-			segDuration = 4 // Agnes 最少4秒
+			segDuration = 4
 		}
 
 		utils.LogInfo("DH segment %d/%d: %ds-%ds (%ds)", i+1, numSegments, startSec, endSec, segDuration)
@@ -425,7 +481,6 @@ func (p *Pipeline) generateMultiSegmentDigitalHuman(client *video.AgnesVideoClie
 		segmentPaths = append(segmentPaths, segPath)
 	}
 
-	// 拼接所有段
 	utils.LogInfo("DH: concatenating %d segments...", len(segmentPaths))
 	err := video.ConcatenateSegments(segmentPaths, finalPath)
 	if err != nil {
@@ -448,40 +503,34 @@ func (p *Pipeline) generatePortrait(params *models.VideoParams, destPath string)
 		return "", fmt.Errorf("portrait generation failed: %w", err)
 	}
 
-	// 重命名第一张图片
 	os.Rename(imgPaths[0], destPath)
 	return destPath, nil
 }
 
 // serveFileTemporarily 返回本地文件的公开可访问 URL
-// 使用 PublicBaseURL 配置项拼接 URL
 func (p *Pipeline) serveFileTemporarily(filePath, taskID string) (string, func(), error) {
 	baseURL := p.cfg.GetPublicBaseURL()
 	if baseURL == "" {
 		return "", nil, fmt.Errorf("public_base_url not configured, cannot serve files to external API")
 	}
 
-	// 计算文件相对于 storage 目录的相对路径
 	storageDir := p.cfg.StorageDir
 	relPath, err := filepath.Rel(filepath.Join(storageDir, "tasks"), filePath)
 	if err != nil {
-		// 如果不在 tasks 目录下，直接用文件名
 		relPath = filepath.Base(filePath)
 	}
 	relPath = filepath.ToSlash(relPath)
 
-	// 拼接公开 URL: baseURL/api/v1/download/taskID/filename
 	publicURL := fmt.Sprintf("%s/api/v1/download/%s/%s", baseURL, taskID, filepath.Base(filePath))
 	utils.LogInfo("serving file publicly: %s", publicURL)
 	return publicURL, func() {}, nil
 }
 
-// isURL checks if a string is a URL
 func isURL(s string) bool {
 	return len(s) > 4 && (s[:4] == "http" || s[:5] == "https")
 }
 
-// generateScript 调用 LLM 生成脚本
+// generateScript 旧模式脚本生成（数字人模式使用）
 func (p *Pipeline) generateScript(params *models.VideoParams, tmpl *template.Template) (string, []string, error) {
 	if params.VideoScript != "" {
 		terms := params.VideoTerms
@@ -494,7 +543,6 @@ func (p *Pipeline) generateScript(params *models.VideoParams, tmpl *template.Tem
 		return params.VideoScript, terms, nil
 	}
 
-	// 如果有模板，使用模板的脚本提示词
 	scriptPrompt := ""
 	imageCount := 8
 	if tmpl != nil {
@@ -505,7 +553,7 @@ func (p *Pipeline) generateScript(params *models.VideoParams, tmpl *template.Tem
 	return llm.GenerateScriptWithPrompt(params.VideoSubject, scriptPrompt, imageCount, p.cfg)
 }
 
-// fetchMaterials 获取视频素材
+// fetchMaterials 获取视频素材（旧模式）
 func (p *Pipeline) fetchMaterials(terms []string, taskDir string, params *models.VideoParams) ([]string, error) {
 	source := params.VideoSource
 	if source == "" {
@@ -551,9 +599,9 @@ func LoadTask(cfg *config.Config, taskID string) (*models.TaskResult, error) {
 
 // ListTasksOpts 带筛选和分页的任务列表查询
 type ListTasksOpts struct {
-	State    int  // 0=全部, 1=完成, 4=处理中, -1=失败
-	Page     int  // 从1开始
-	PageSize int  // 默认30
+	State    int
+	Page     int
+	PageSize int
 }
 
 // ListTasksFiltered 带筛选和分页的任务列表
@@ -579,7 +627,6 @@ func ListTasksFiltered(cfg *config.Config, opts ListTasksOpts) ([]*models.TaskRe
 			continue
 		}
 
-		// 状态筛选
 		if opts.State != 0 && result.State != opts.State {
 			continue
 		}
@@ -587,14 +634,12 @@ func ListTasksFiltered(cfg *config.Config, opts ListTasksOpts) ([]*models.TaskRe
 		tasks = append(tasks, &result)
 	}
 
-	// 按开始时间降序排列（最新的在前）
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].StartTime.After(tasks[j].StartTime)
 	})
 
 	total := len(tasks)
 
-	// 分页
 	if opts.PageSize <= 0 {
 		opts.PageSize = 30
 	}
@@ -637,7 +682,6 @@ func ListTasks(cfg *config.Config) ([]*models.TaskResult, error) {
 		tasks = append(tasks, &result)
 	}
 
-	// 按开始时间降序排列
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].StartTime.After(tasks[j].StartTime)
 	})
