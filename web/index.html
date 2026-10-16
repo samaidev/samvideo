@@ -235,9 +235,23 @@ select{cursor:pointer}
       </div>
       <div class="dh-step">
         <h3><span class="step-num">2</span> 选择/上传主播头像</h3>
-        <div class="mat-upload-area" onclick="document.getElementById('dh_portrait_upload').click()" style="margin-top:.5rem">
-          <div class="icon">📷</div><p>点击上传主播头像照片</p>
-          <input type="file" id="dh_portrait_upload" accept="image/*" style="display:none" onchange="uploadDHPortrait(event)">
+        <div class="sub-tabs" style="margin-top:.5rem">
+          <div class="sub-tab active" id="dh_mode_upload" onclick="switchDHMode('upload')">📷 上传头像</div>
+          <div class="sub-tab" id="dh_mode_generate" onclick="switchDHMode('generate')">🎨 AI生成头像</div>
+        </div>
+        <div id="dh_upload_area">
+          <div class="mat-upload-area" onclick="document.getElementById('dh_portrait_upload').click()" style="margin-top:.5rem">
+            <div class="icon">📷</div><p>点击上传主播头像照片</p>
+            <input type="file" id="dh_portrait_upload" accept="image/*" style="display:none" onchange="uploadDHPortrait(event)">
+          </div>
+        </div>
+        <div id="dh_generate_area" style="display:none">
+          <div class="form-group" style="margin-top:.5rem">
+            <label>头像描述（可选）</label>
+            <textarea id="dh_generate_prompt" rows="2" placeholder="留空则生成默认新闻主播头像，例如：年轻女性主播，职业装，微笑，演播室背景"></textarea>
+          </div>
+          <button class="btn btn-primary btn-sm" id="dh_generate_btn" onclick="generateDHPortrait()" style="margin-bottom:.5rem">🎨 生成头像</button>
+          <div id="dh_generate_result" style="display:none"></div>
         </div>
         <div class="dh-portrait-grid" id="dh_portrait_grid"></div>
       </div>
@@ -416,6 +430,37 @@ async function checkDHConfig(){
       el.innerHTML+='<div style="margin-top:.5rem;color:var(--text-dim)">请在 LLM配置 Tab 中完成配置后继续</div>';
     }
   }catch(e){el.innerHTML='<div class="check-item fail">❌ 配置检查失败</div>'}
+}
+// DH portrait mode switch (upload vs generate)
+function switchDHMode(mode){
+  document.getElementById('dh_mode_upload').classList.toggle('active',mode==='upload');
+  document.getElementById('dh_mode_generate').classList.toggle('active',mode==='generate');
+  document.getElementById('dh_upload_area').style.display=mode==='upload'?'':'none';
+  document.getElementById('dh_generate_area').style.display=mode==='generate'?'':'none';
+}
+async function generateDHPortrait(){
+  const btn=document.getElementById('dh_generate_btn');
+  const el=document.getElementById('dh_generate_result');
+  btn.disabled=true;btn.textContent='⏳ 生成中...';
+  el.style.display='block';el.className='config-test-result';el.textContent='正在生成头像...';
+  const prompt=document.getElementById('dh_generate_prompt').value.trim();
+  try{
+    const r=await fetch(API+'/digital-human/portrait/generate',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt:prompt})
+    });
+    const d=await r.json();
+    if(d.ok){
+      el.className='config-test-result ok';el.textContent='✅ 头像生成成功！';
+      showToast('头像生成成功','success');
+      loadDHPortraits();loadAnchors();
+    }else{
+      el.className='config-test-result fail';el.textContent='❌ 生成失败: '+(d.error||'未知错误');
+    }
+  }catch(e){
+    el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message;
+  }
+  btn.disabled=false;btn.textContent='🎨 生成头像';
 }
 async function uploadDHPortrait(e){
   const file=e.target.files[0];if(!file)return;

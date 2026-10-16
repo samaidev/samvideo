@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"samvideo/internal/config"
 	"samvideo/internal/models"
@@ -64,6 +66,7 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 
 		// 数字人头像
 		v1.POST("/digital-human/portrait", s.uploadDHPortrait)
+		v1.POST("/digital-human/portrait/generate", s.generateDHPortrait)
 		v1.GET("/digital-human/portrait/:filename", s.serveDHPortrait)
 		v1.GET("/digital-human/portraits", s.listDHPortraits)
 		v1.DELETE("/digital-human/portrait/:filename", s.deleteDHPortrait)
@@ -782,4 +785,110 @@ func (s *Server) listDHPortraits(c *gin.Context) {
 
 func (s *Server) deleteDHPortrait(c *gin.Context) {
 	s.handleDelete(c, filepath.Join(s.cfg.ResourceDir, "portraits"))
+}
+
+// generateDHPortrait generates a digital human portrait via image API
+func (s *Server) generateDHPortrait(c *gin.Context) {
+	var req struct {
+		Prompt string `json:"prompt"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	prompt := req.Prompt
+	if prompt == "" {
+		prompt = "professional portrait photo of a news anchor, studio lighting, upper body, looking at camera, clean background, high quality, photorealistic"
+	}
+
+	cfg := s.cfg
+	if cfg.OpenAIImageBaseURL == "" || len(cfg.OpenAIImageAPIKeys) == 0 || cfg.OpenAIImageModel == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "文生图模型未配置，请在LLM配置中设置"})
+		return
+	}
+
+	baseURL := cfg.OpenAIImageBaseURL
+	apiKey := cfg.OpenAIImageAPIKeys[0]
+	model := cfg.OpenAIImageModel
+	size := cfg.OpenAIImageSize
+	if size == "" {
+		size = "1280x720"
+	}
+
+	// Call image generation API
+	url := strings.TrimSuffix(baseURL, "/") + "/images/generations"
+	reqBody := map[string]interface{}{
+		"model":           model,
+		"prompt":          prompt,
+		"n":               1,
+		"size":            size,
+		"response_format": "b64_json",
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+	httpReq, _ := http.NewRequest("POST", url, strings.NewReader(string(bodyJSON)))
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+apiKey)
+
+	client := &http.Client{Timeout: 120 * time.Second}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "请求文生图API失败: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("文生图API返回 %d: %s", resp.StatusCode, string(body[:200]))})
+		return
+	}
+
+	var result struct {
+		Data []struct {
+			B64JSON string `json:"b64_json"`
+			URL     string `json:"url"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil || len(result.Data) == 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "解析文生图响应失败"})
+		return
+	}
+
+	var imageData []byte
+	if result.Data[0].B64JSON != "" {
+		imageData, _ = base64.StdEncoding.DecodeString(result.Data[0].B64JSON)
+	} else if result.Data[0].URL != "" {
+		resp2, err := http.Get(result.Data[0].URL)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "error": "下载图片失败"})
+			return
+		}
+		defer resp2.Body.Close()
+		imageData, _ = io.ReadAll(resp2.Body)
+	}
+
+	if len(imageData) == 0 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "图片数据为空"})
+		return
+	}
+
+	// Save to portraits directory
+	portraitDir := filepath.Join(cfg.ResourceDir, "portraits")
+	os.MkdirAll(portraitDir, 0755)
+	filename := fmt.Sprintf("portrait_%d.png", time.Now().UnixNano())
+	dst := filepath.Join(portraitDir, filename)
+	if err := os.WriteFile(dst, imageData, 0644); err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "保存图片失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":      true,
+		"message": "头像生成成功",
+		"data": gin.H{
+			"filename": filename,
+			"url":      "/api/v1/digital-human/portrait/" + filename,
+			"size":      len(imageData),
+		},
+	})
 }
