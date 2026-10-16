@@ -138,3 +138,76 @@ func parseSRTTime(s string) float64 {
 // unused but kept for reference
 var _ = json.Marshal
 var _ = time.Now
+
+// SynthesizeScenes 逐段合成语音，返回每段音频路径和时长
+// 每段 narration 单独做 TTS，确保图片可以按语音时长对齐
+func SynthesizeScenes(scenes []SceneNarration, voiceName string, rate float64, taskDir string, cfg *config.Config) ([]SceneAudio, error) {
+	if voiceName == "" {
+		voiceName = "zh-CN-YunxiNeural"
+	}
+	if rate == 0 {
+		rate = 1.0
+	}
+
+	rateStr := fmt.Sprintf("%+d%%", int((rate-1)*100))
+	var results []SceneAudio
+
+	for i, scene := range scenes {
+		audioPath := filepath.Join(taskDir, fmt.Sprintf("scene_%03d.mp3", i))
+		subPath := filepath.Join(taskDir, fmt.Sprintf("scene_%03d.srt", i))
+
+		utils.LogInfo("TTS scene %d/%d: %d chars", i+1, len(scenes), len(scene.Narration))
+
+		args := []string{
+			"-m", "edge_tts",
+			"--voice", voiceName,
+			"--rate", rateStr,
+			"--text", scene.Narration,
+			"--write-media", audioPath,
+			"--write-subtitles", subPath,
+		}
+
+		cmd := exec.Command("python3", args...)
+		cmd.Env = append(os.Environ())
+		out, err := cmd.CombinedOutput()
+		if err != nil {
+			return nil, fmt.Errorf("edge-tts scene %d failed: %w, output: %s", i, err, string(out))
+		}
+
+		// 获取音频时长
+		duration, err := utils.GetMediaDuration(audioPath)
+		if err != nil {
+			utils.LogWarn("failed to get duration for scene %d: %v, using default 5s", i, err)
+			duration = 5.0
+		}
+
+		// 解析字幕获取 WordBoundary
+		boundaries, _ := parseSRTToBoundaries(subPath)
+
+		results = append(results, SceneAudio{
+			AudioPath:  audioPath,
+			Duration:   duration,
+			Narration:  scene.Narration,
+			Index:      i,
+			Boundaries: boundaries,
+		})
+
+		utils.LogInfo("TTS scene %d done: %.1fs, %s", i+1, duration, audioPath)
+	}
+
+	return results, nil
+}
+
+// SceneNarration 分镜旁白文本（供 TTS 使用）
+type SceneNarration struct {
+	Narration string
+}
+
+// SceneAudio 单段语音结果
+type SceneAudio struct {
+	AudioPath  string
+	Duration   float64
+	Narration  string
+	Index      int
+	Boundaries []WordBoundary
+}

@@ -165,7 +165,7 @@ func defaultConfig() *Config {
 		VideoSource:       "openai_image",
 		SubtitleProvider:  "edge",
 		BGMType:           "random",
-		BGMVolume:         0.2,
+		BGMVolume:         0.08,
 		LLMProvider:       "openai",
 		OpenAIImageSize:   "1280x720",
 		OpenAIImagePromptTmpl: "{keyword}",

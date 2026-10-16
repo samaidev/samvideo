@@ -29,7 +29,7 @@ subtitle_provider = "edge"
 
 # Background music: "random", "custom", "none"
 bgm_type = "random"
-bgm_volume = 0.2
+bgm_volume = 0.08
 
 # Public base URL for digital human mode (Agnes Video API needs to access local files)
 public_base_url = ""

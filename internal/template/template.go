@@ -43,7 +43,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        1.2,
 		TransitionMode:   "shuffle",
 		BGMType:          "random",
-		BGMVolume:        0.55,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunxiNeural",
 		ScriptPrompt: `你是一个技术博主。请根据主题写一段约200字的短视频解说脚本。
@@ -65,7 +65,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        1.2,
 		TransitionMode:   "shuffle",
 		BGMType:          "random",
-		BGMVolume:        0.55,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunxiNeural",
 		ScriptPrompt: `你是一个技术博主。请根据主题写一段约200字的短视频解说脚本。
@@ -87,7 +87,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        0.8,
 		TransitionMode:   "fade_in",
 		BGMType:          "random",
-		BGMVolume:        0.55,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunyangNeural",
 		ScriptPrompt: `你是一个励志演讲者。请根据主题写一段约200字的短视频解说脚本。
@@ -109,7 +109,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        0.8,
 		TransitionMode:   "fade_in",
 		BGMType:          "random",
-		BGMVolume:        0.55,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunyangNeural",
 		ScriptPrompt: `你是一个励志演讲者。请根据主题写一段约200字的短视频解说脚本。
@@ -131,7 +131,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        1.0,
 		TransitionMode:   "shuffle",
 		BGMType:          "random",
-		BGMVolume:        0.50,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunxiNeural",
 		ScriptPrompt: `你是一个学术科普作者。请根据主题写一段约200字的短视频解说脚本。
@@ -153,7 +153,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        1.3,
 		TransitionMode:   "shuffle",
 		BGMType:          "random",
-		BGMVolume:        0.50,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunxiNeural",
 		ScriptPrompt: `你是一个财经新闻主播。请根据主题写一段约200字的短视频解说脚本。
@@ -175,7 +175,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        1.5,
 		TransitionMode:   "shuffle",
 		BGMType:          "random",
-		BGMVolume:        0.50,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunyangNeural",
 		ScriptPrompt: `你是一个营销文案专家。请根据主题写一段约200字的短视频解说脚本。
@@ -197,7 +197,7 @@ var BuiltinTemplates = []Template{
 		ClipSpeed:        0.9,
 		TransitionMode:   "fade_in",
 		BGMType:          "random",
-		BGMVolume:        0.50,
+		BGMVolume:        0.10,
 		SubtitleEnabled:  true,
 		VoiceName:        "zh-CN-YunyangNeural",
 		ScriptPrompt: `你是一个故事讲述者。请根据主题写一段约200字的短视频解说脚本。

@@ -97,9 +97,9 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		return p.runDigitalHuman(taskID, taskDir, params, result, save)
 	}
 
-	// ====== 普通视频生成模式 ======
+	// ====== 普通视频生成模式（逐段对齐）======
 
-	// Step 0: 模板分类（如果用户没有指定 aspect，自动分类）
+	// Step 0: 模板分类
 	var tmpl *template.Template
 	if params.VideoAspect == "" || params.VideoTransitionMode == "" {
 		utils.LogInfo("step 0: auto classifying topic and selecting template...")
@@ -112,7 +112,7 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 		}
 	}
 
-	// Step 1: LLM 分镜脚本生成（优先用分镜模式，确保图文一致）
+	// Step 1: LLM 分镜脚本生成
 	utils.LogInfo("step 1: generating scene-based script via LLM...")
 	script, imagePrompts, scenes, err := p.generateScriptWithScenes(params, tmpl)
 	if err != nil {
@@ -127,13 +127,21 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	save(10)
 
 	scriptData, _ := json.MarshalIndent(map[string]interface{}{
-		"script":       script,
+		"script":        script,
 		"image_prompts": imagePrompts,
-		"scenes":       scenes,
-		"params":       params,
-		"template":     tmpl,
+		"scenes":        scenes,
+		"params":        params,
+		"template":      tmpl,
 	}, "", "  ")
 	os.WriteFile(filepath.Join(taskDir, "script.json"), scriptData, 0644)
+
+	// ====== 逐段对齐模式（有分镜数据时）======
+	if len(scenes) > 0 {
+		return p.runSceneAlignedPipeline(taskID, taskDir, params, result, save, scenes, tmpl)
+	}
+
+	// ====== 旧模式降级（无分镜数据时）======
+	utils.LogInfo("no scene data, falling back to legacy pipeline...")
 
 	// Step 2: TTS
 	utils.LogInfo("step 2: generating TTS audio...")
@@ -160,8 +168,8 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	}
 	save(30)
 
-	// Step 4: 素材——用分镜的 image_prompt 直接生成图片，确保图文一致
-	utils.LogInfo("step 4: fetching video materials (scene-based prompts)...")
+	// Step 4: 素材
+	utils.LogInfo("step 4: fetching video materials...")
 	clipPaths, err := p.fetchMaterialsScene(imagePrompts, taskDir, params)
 	if err != nil {
 		result.State = models.TaskStateFailed
@@ -208,7 +216,7 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 	}
 	save(90)
 
-	// Step 7: 生成缩略图
+	// Step 7: 缩略图
 	thumbPath := filepath.Join(taskDir, "thumbnail.jpg")
 	if err := GenerateThumbnail(finalPath, thumbPath); err != nil {
 		utils.LogWarn("thumbnail generation failed: %v", err)
@@ -226,6 +234,183 @@ func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*mo
 
 	utils.LogInfo("task %s completed: %s", taskID, finalPath)
 	return result, nil
+}
+
+// runSceneAlignedPipeline 逐段对齐流水线
+// 每段旁白单独做TTS得到时长，图片视频片段时长=对应语音时长，图文在时间线上完美对齐
+func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *models.VideoParams, result *models.TaskResult, save func(int), scenes []llm.Scene, tmpl *template.Template) (*models.TaskResult, error) {
+	utils.LogInfo("=== Scene-Aligned Pipeline: %d scenes ===", len(scenes))
+
+	// Step 2: 逐段 TTS——每段旁白单独合成语音，得到精确时长
+	utils.LogInfo("step 2: per-scene TTS synthesis...")
+	sceneNarrations := make([]tts.SceneNarration, len(scenes))
+	for i, s := range scenes {
+		sceneNarrations[i] = tts.SceneNarration{Narration: s.Narration}
+	}
+	sceneAudios, err := tts.SynthesizeScenes(sceneNarrations, params.VoiceName, params.VoiceRate, taskDir, p.cfg)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("per-scene TTS failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+
+	// 拼接所有段语音为完整音频
+	audioPath := filepath.Join(taskDir, "audio.mp3")
+	var audioPaths []string
+	for _, sa := range sceneAudios {
+		audioPaths = append(audioPaths, sa.AudioPath)
+	}
+	if err := video.ConcatenateAudioFiles(audioPaths, audioPath); err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("audio concatenation failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+
+	// 计算每段的累计时间偏移（用于字幕）
+	var subEntries []subtitle.SceneSubtitleEntry
+	cumulativeOffset := 0.0
+	for i, sa := range sceneAudios {
+		subEntries = append(subEntries, subtitle.SceneSubtitleEntry{
+			Text:  sa.Narration,
+			Start: cumulativeOffset,
+			End:   cumulativeOffset + sa.Duration,
+		})
+		cumulativeOffset += sa.Duration
+		utils.LogInfo("scene %d: dur=%.1fs, offset=%.1f-%.1fs, text=%s",
+			i+1, sa.Duration, subEntries[i].Start, subEntries[i].End, truncateText(sa.Narration, 30))
+	}
+	save(25)
+
+	// Step 3: 字幕
+	utils.LogInfo("step 3: generating scene-based subtitle...")
+	srtPath := filepath.Join(taskDir, "subtitle.srt")
+	assPath := filepath.Join(taskDir, "subtitle.ass")
+	if params.SubtitleEnabled {
+		err = subtitle.GenerateFromScenes(subEntries, srtPath, assPath, params)
+		if err != nil {
+			utils.LogWarn("subtitle generation failed: %v, continuing without subtitle", err)
+		}
+	}
+	save(30)
+
+	// Step 4: 逐段生成图片——用 scene 的 image_prompt 生成图片
+	utils.LogInfo("step 4: generating images for each scene...")
+	var imgPaths []string
+	for i, scene := range scenes {
+		imgPath, err := material.GenerateImageForScene(scene.ImagePrompt, taskDir, i, p.cfg)
+		if err != nil {
+			utils.LogWarn("failed to generate image for scene %d: %v, skipping", i+1, err)
+			continue
+		}
+		imgPaths = append(imgPaths, imgPath)
+	}
+	if len(imgPaths) == 0 {
+		result.State = models.TaskStateFailed
+		result.Error = "no images generated"
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	save(50)
+
+	// Step 5: 图片转视频片段——每段时长=对应语音时长
+	utils.LogInfo("step 5: converting images to video clips with aligned durations...")
+	var clipPaths []string
+	var clipDurations []float64
+	for i, imgPath := range imgPaths {
+		// 该段的语音时长
+		dur := 5.0
+		if i < len(sceneAudios) {
+			dur = sceneAudios[i].Duration
+		}
+		if dur < 1.0 {
+			dur = 1.0
+		}
+
+		clipPath := filepath.Join(taskDir, fmt.Sprintf("clip_%03d.mp4", i))
+		variantIdx := i % 8
+		err := material.ImageToVideoClipWithDuration(imgPath, clipPath, dur, params, variantIdx)
+		if err != nil {
+			utils.LogWarn("failed to convert image %d to clip: %v, skipping", i, err)
+			continue
+		}
+		clipPaths = append(clipPaths, clipPath)
+		clipDurations = append(clipDurations, dur)
+		utils.LogInfo("clip %d: dur=%.1fs (aligned with scene audio)", i+1, dur)
+	}
+	if len(clipPaths) == 0 {
+		result.State = models.TaskStateFailed
+		result.Error = "no clips generated"
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, fmt.Errorf("no clips generated")
+	}
+	save(60)
+
+	// Step 6: 拼接所有片段
+	utils.LogInfo("step 6: concatenating %d aligned clips...", len(clipPaths))
+	combinedPath := filepath.Join(taskDir, "combined.mp4")
+	err = video.ConcatenateClipsWithDurations(clipPaths, clipDurations, combinedPath, params)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("video concatenation failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	save(70)
+
+	// Step 6.5: BGM
+	if params.BGMType != "none" && params.BGMType != "" {
+		utils.LogInfo("step 6.5: ensuring BGM files...")
+		_, bgmErr := bgm.EnsureBGM(p.cfg)
+		if bgmErr != nil {
+			utils.LogWarn("BGM generation failed: %v, continuing without BGM", bgmErr)
+		}
+	}
+
+	// Step 7: 最终合成
+	utils.LogInfo("step 7: final composition...")
+	finalPath := filepath.Join(taskDir, "final.mp4")
+	err = video.FinalCompose(combinedPath, audioPath, assPath, srtPath, finalPath, params, p.cfg)
+	if err != nil {
+		result.State = models.TaskStateFailed
+		result.Error = fmt.Sprintf("final composition failed: %v", err)
+		result.EndTime = time.Now()
+		p.saveTask(taskDir, result)
+		return result, err
+	}
+	save(90)
+
+	// Step 8: 缩略图
+	thumbPath := filepath.Join(taskDir, "thumbnail.jpg")
+	if err := GenerateThumbnail(finalPath, thumbPath); err != nil {
+		utils.LogWarn("thumbnail generation failed: %v", err)
+	} else {
+		result.ThumbnailURL = fmt.Sprintf("/api/v1/download/%s/thumbnail.jpg", taskID)
+	}
+
+	// Step 9: 完成
+	result.State = models.TaskStateComplete
+	result.Progress = 100
+	result.VideoPath = finalPath
+	result.VideoURL = fmt.Sprintf("/api/v1/download/%s/final.mp4", taskID)
+	result.EndTime = time.Now()
+	p.saveTask(taskDir, result)
+
+	utils.LogInfo("scene-aligned task %s completed: %s", taskID, finalPath)
+	return result, nil
+}
+
+func truncateText(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
 }
 
 // generateScriptWithScenes 使用分镜模式生成脚本

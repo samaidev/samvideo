@@ -179,3 +179,90 @@ func escapeASSText(text string) string {
 	text = strings.ReplaceAll(text, "}", "\\}")
 	return text
 }
+
+// SceneSubtitleEntry 分镜字幕条目
+type SceneSubtitleEntry struct {
+	Text  string
+	Start float64
+	End   float64
+}
+
+// GenerateFromScenes 从分镜场景生成字幕
+// sceneAudios 包含每段的文本、开始时间、结束时间
+func GenerateFromScenes(entries []SceneSubtitleEntry, srtPath, assPath string, params *models.VideoParams) error {
+	if len(entries) == 0 {
+		return fmt.Errorf("no subtitle entries")
+	}
+
+	// 生成 SRT
+	var srtLines []string
+	for i, e := range entries {
+		if strings.TrimSpace(e.Text) == "" {
+			continue
+		}
+		srtLines = append(srtLines, fmt.Sprintf("%d", i+1))
+		srtLines = append(srtLines, fmt.Sprintf("%s --> %s",
+			utils.FormatTimestamp(e.Start), utils.FormatTimestamp(e.End)))
+		srtLines = append(srtLines, e.Text)
+		srtLines = append(srtLines, "")
+	}
+	if err := os.WriteFile(srtPath, []byte(strings.Join(srtLines, "\n")), 0644); err != nil {
+		return fmt.Errorf("write SRT: %w", err)
+	}
+
+	// 生成 ASS
+	fontName := params.FontName
+	if fontName == "" {
+		fontName = "Noto Sans CJK SC"
+	}
+	fontSize := params.FontSize
+	if fontSize == 0 {
+		fontSize = 48
+	}
+	primaryColor := params.TextForeColor
+	if primaryColor == "" {
+		primaryColor = "#FFFFFF"
+	}
+	assColor := hexToASSColor(primaryColor)
+	strokeColor := params.StrokeColor
+	if strokeColor == "" {
+		strokeColor = "#000000"
+	}
+	assStrokeColor := hexToASSColor(strokeColor)
+	strokeWidth := params.StrokeWidth
+	if strokeWidth == 0 {
+		strokeWidth = 2.0
+	}
+	alignment := 2
+	if params.SubtitlePosition == "top" {
+		alignment = 8
+	}
+
+	var ass strings.Builder
+	ass.WriteString("[Script Info]\n")
+	ass.WriteString("Title: SamVideo Subtitle\n")
+	ass.WriteString("ScriptType: v4.00+\n")
+	ass.WriteString("PlayResX: 1920\n")
+	ass.WriteString("PlayResY: 1080\n")
+	ass.WriteString("WrapStyle: 0\n\n")
+	ass.WriteString("[V4+ Styles]\n")
+	ass.WriteString("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+	ass.WriteString(fmt.Sprintf("Style: Default,%s,%d,%s,%s,%s,%s,1,0,0,0,100,100,0,0,1,%.1f,0,%d,60,60,60,1\n\n",
+		fontName, fontSize, assColor, assColor, assStrokeColor, assStrokeColor, strokeWidth, alignment))
+	ass.WriteString("[Events]\n")
+	ass.WriteString("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+	for _, e := range entries {
+		if strings.TrimSpace(e.Text) == "" {
+			continue
+		}
+		ass.WriteString(fmt.Sprintf("Dialogue: 0,%s,%s,Default,,0,0,0,,%s\n",
+			utils.FormatTimestampASS(e.Start), utils.FormatTimestampASS(e.End), escapeASSText(e.Text)))
+	}
+
+	if err := os.WriteFile(assPath, []byte(ass.String()), 0644); err != nil {
+		return fmt.Errorf("write ASS: %w", err)
+	}
+
+	utils.LogInfo("scene-based subtitle generated: %s, %s (%d entries)", srtPath, assPath, len(entries))
+	return nil
+}

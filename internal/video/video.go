@@ -102,7 +102,7 @@ func processOneClip(input, output string, width, height, duration int, params *m
 	if transitionMode == "" {
 		transitionMode = "shuffle"
 	}
-	transition := selectTransition(transitionMode, clipIndex)
+	transition := selectTransition(transitionMode, clipIndex, float64(duration))
 	if transition != "" {
 		vf = vf + "," + transition
 	}
@@ -134,17 +134,14 @@ func processOneClip(input, output string, width, height, duration int, params *m
 }
 
 // selectTransition 根据转场模式和片段索引选择转场效果
-func selectTransition(mode string, clipIndex int) string {
-	transitions := []string{
-		"fade=t=in:st=0:d=0.5",
-		"fade=t=out:st=4.5:d=0.5",
-		"fade=t=in:st=0:d=0.4,fade=t=out:st=4.6:d=0.4",
-		"fade=t=in:st=0:d=0.5:color=white",
-		"fade=t=in:st=0:d=0.8",
-		"fade=t=out:st=4.2:d=0.8:color=white",
-		"fade=t=in:st=0:d=0.3:color=white,fade=t=out:st=4.7:d=0.3:color=white",
-		"",
+// duration 为当前片段时长，fade out 的 st 根据时长动态计算，避免提前淡出导致黑屏
+func selectTransition(mode string, clipIndex int, duration float64) string {
+	if duration < 2.0 {
+		return "" // 太短的片段不加转场
 	}
+	fadeOutStart := duration - 0.5 // 淡出从最后0.5秒开始
+	fadeOutStartLong := duration - 0.8
+	fadeOutStartShort := duration - 0.3
 
 	switch mode {
 	case "none":
@@ -152,11 +149,21 @@ func selectTransition(mode string, clipIndex int) string {
 	case "fade_in":
 		return "fade=t=in:st=0:d=0.5"
 	case "fade_out":
-		return "fade=t=out:st=4.5:d=0.5"
+		return fmt.Sprintf("fade=t=out:st=%.1f:d=0.5", fadeOutStart)
 	case "shuffle":
+		transitions := []string{
+			"fade=t=in:st=0:d=0.5",
+			fmt.Sprintf("fade=t=out:st=%.1f:d=0.5", fadeOutStart),
+			fmt.Sprintf("fade=t=in:st=0:d=0.4,fade=t=out:st=%.1f:d=0.4", fadeOutStartShort),
+			"fade=t=in:st=0:d=0.5:color=white",
+			"fade=t=in:st=0:d=0.8",
+			fmt.Sprintf("fade=t=out:st=%.1f:d=0.8:color=white", fadeOutStartLong),
+			fmt.Sprintf("fade=t=in:st=0:d=0.3:color=white,fade=t=out:st=%.1f:d=0.3:color=white", fadeOutStartShort),
+			"",
+		}
 		return transitions[clipIndex%len(transitions)]
 	default:
-		return transitions[clipIndex%len(transitions)]
+		return ""
 	}
 }
 
@@ -454,6 +461,136 @@ func ConcatenateSegments(segmentPaths []string, outputPath string) error {
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("ffmpeg concat: %w, output: %s", err, string(output))
+	}
+	return nil
+}
+
+// ConcatenateClipsWithDurations 按指定时长拼接视频片段
+// 每个 clip 对应一个 duration，片段按顺序拼接
+func ConcatenateClipsWithDurations(clipPaths []string, durations []float64, outputPath string, params *models.VideoParams) error {
+	if len(clipPaths) == 0 {
+		return fmt.Errorf("no clips to concatenate")
+	}
+
+	width, height := getResolution(params.VideoAspect)
+	taskDir := filepath.Dir(outputPath)
+
+	// 逐个处理：resize + 裁剪到对应时长 + 转场
+	var processedClips []string
+	for i, clip := range clipPaths {
+		dur := 5.0
+		if i < len(durations) {
+			dur = durations[i]
+		}
+		if dur < 1.0 {
+			dur = 1.0
+		}
+
+		processed := filepath.Join(taskDir, fmt.Sprintf("aligned_%03d.mp4", i))
+		err := processClipWithDuration(clip, processed, width, height, dur, params, i)
+		if err != nil {
+			utils.LogWarn("failed to process clip %d: %v, skipping", i, err)
+			continue
+		}
+		processedClips = append(processedClips, processed)
+		utils.LogInfo("aligned clip %d: dur=%.1fs -> %s", i, dur, processed)
+	}
+
+	if len(processedClips) == 0 {
+		return fmt.Errorf("no clips processed successfully")
+	}
+
+	return concatClips(processedClips, outputPath)
+}
+
+// processClipWithDuration 处理单个片段到指定时长
+func processClipWithDuration(input, output string, width, height int, duration float64, params *models.VideoParams, clipIndex int) error {
+	fitMode := params.VideoFitMode
+	if fitMode == "" {
+		fitMode = "cover"
+	}
+
+	var vf string
+	if fitMode == "cover" {
+		vf = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=increase,crop=%d:%d:(iw-%d)/2:(ih-%d)/2",
+			width, height, width, height, width, height)
+	} else {
+		vf = fmt.Sprintf("scale=%d:%d:force_original_aspect_ratio=decrease,pad=%d:%d:(%d-iw)/2:(%d-ih)/2:black",
+			width, height, width, height, width, height)
+	}
+
+	// 转场效果
+	transitionMode := params.VideoTransitionMode
+	if transitionMode == "" {
+		transitionMode = "shuffle"
+	}
+	transition := selectTransition(transitionMode, clipIndex, duration)
+	if transition != "" {
+		vf = vf + "," + transition
+	}
+
+	args := []string{
+		"-y", "-i", input,
+		"-t", fmt.Sprintf("%.3f", duration),
+		"-vf", vf,
+		"-r", "30",
+		"-c:v", "libx264", "-preset", "fast", "-crf", "23",
+		"-pix_fmt", "yuv420p",
+		"-an",
+		"-shortest",
+		output,
+	}
+
+	cmd := exec.Command("ffmpeg", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg process clip: %w, output: %s", err, string(out))
+	}
+	return nil
+}
+
+// ConcatenateAudioFiles 拼接多个音频文件
+func ConcatenateAudioFiles(audioPaths []string, outputPath string) error {
+	if len(audioPaths) == 0 {
+		return fmt.Errorf("no audio files to concatenate")
+	}
+	if len(audioPaths) == 1 {
+		data, err := os.ReadFile(audioPaths[0])
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(outputPath, data, 0644)
+	}
+
+	listFile := outputPath + ".concat.txt"
+	var lines []string
+	for _, p := range audioPaths {
+		abs, _ := filepath.Abs(p)
+		abs = strings.ReplaceAll(abs, "'", "\\'")
+		lines = append(lines, fmt.Sprintf("file '%s'", abs))
+	}
+	os.WriteFile(listFile, []byte(strings.Join(lines, "\n")), 0644)
+	defer os.Remove(listFile)
+
+	cmd := exec.Command("ffmpeg", "-y",
+		"-f", "concat", "-safe", "0",
+		"-i", listFile,
+		"-c", "copy",
+		outputPath,
+	)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// re-encode fallback
+		cmd = exec.Command("ffmpeg", "-y",
+			"-f", "concat", "-safe", "0",
+			"-i", listFile,
+			"-c:a", "libmp3lame", "-b:a", "192k",
+			outputPath,
+		)
+		out, err = cmd.CombinedOutput()
+		if err != nil {
+			return fmt.Errorf("ffmpeg concat audio: %w, output: %s", err, string(out))
+		}
 	}
 	return nil
 }

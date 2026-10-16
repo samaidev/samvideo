@@ -345,3 +345,123 @@ func isImageFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".png" || ext == ".jpg" || ext == ".jpeg" || ext == ".gif" || ext == ".webp" || ext == ".bmp"
 }
+
+// GenerateImageForScene generates a single image from a prompt and returns the image file path
+func GenerateImageForScene(prompt string, taskDir string, index int, cfg *config.Config) (string, error) {
+	baseURL := cfg.OpenAIImageBaseURL
+	apiKey := ""
+	if len(cfg.OpenAIImageAPIKeys) > 0 {
+		apiKey = cfg.OpenAIImageAPIKeys[0]
+	}
+	model := cfg.OpenAIImageModel
+	size := cfg.OpenAIImageSize
+	if size == "" {
+		size = "1280x720"
+	}
+
+	if baseURL == "" || apiKey == "" || model == "" {
+		return "", fmt.Errorf("openai_image not configured")
+	}
+
+	utils.LogInfo("generating image for scene %d: %s", index+1, truncate(prompt, 80))
+
+	// 最多重试4次：生成图片 -> PNG验证 -> 黑白/纯色检测
+	maxRetries := 4
+	for retry := 0; retry < maxRetries; retry++ {
+		imageData, genErr := generateOneImage(baseURL, apiKey, model, size, prompt)
+		if genErr != nil {
+			utils.LogWarn("image gen attempt %d/%d for scene %d failed: %v", retry+1, maxRetries, index+1, genErr)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		if !isValidPNG(imageData) {
+			utils.LogWarn("image gen attempt %d/%d for scene %d: invalid PNG (%d bytes)", retry+1, maxRetries, index+1, len(imageData))
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		imgPath := filepath.Join(taskDir, fmt.Sprintf("image_%03d.png", index))
+		if err := os.WriteFile(imgPath, imageData, 0644); err != nil {
+			return "", fmt.Errorf("failed to save image: %w", err)
+		}
+
+		// 黑白/纯色检测：用 ffmpeg signalstats 检查像素标准差
+		if isBlankImage(imgPath) {
+			utils.LogWarn("image gen attempt %d/%d for scene %d: blank/solid color detected, regenerating", retry+1, maxRetries, index+1)
+			os.Remove(imgPath)
+			time.Sleep(2 * time.Second)
+			continue
+		}
+
+		utils.LogInfo("image saved for scene %d: %s (%d bytes) [passed quality check]", index+1, imgPath, len(imageData))
+		return imgPath, nil
+	}
+
+	return "", fmt.Errorf("failed to generate valid image for scene %d after %d attempts", index+1, maxRetries)
+}
+
+// ImageToVideoClipWithDuration creates a video clip from an image with a specific float duration
+func ImageToVideoClipWithDuration(imgPath, outputPath string, duration float64, params *models.VideoParams, variantIdx int) error {
+	width, height := getResolution(params.VideoAspect)
+	totalFrames := int(duration * 30)
+	if totalFrames < 30 {
+		totalFrames = 30
+	}
+	zoompan := zoompanVariant(variantIdx, totalFrames, width, height)
+	args := []string{
+		"-y", "-loop", "1", "-i", imgPath,
+		"-vf", zoompan,
+		"-t", fmt.Sprintf("%.3f", duration),
+		"-c:v", "libx264", "-preset", "fast", "-crf", "23",
+		"-pix_fmt", "yuv420p",
+		"-an",
+		"-shortest",
+		outputPath,
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("ffmpeg image to video: %w, output: %s", err, string(out))
+	}
+	return nil
+}
+
+// isBlankImage 检测图片是否为全黑/全白/纯色图片
+// 使用 ffmpeg 的 signalstats 滤镜分析像素标准差
+// 标准差 < 5 说明图片几乎是纯色（全黑/全白/单色），应该丢弃
+func isBlankImage(imgPath string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", "-i", imgPath,
+		"-vf", "signalstats", "-f", "null", "-")
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// ffmpeg 可能报错但仍有输出，尝试解析
+		utils.LogWarn("signalstats check error for %s: %v", filepath.Base(imgPath), err)
+		// 如果 ffmpeg 完全失败，用另一种方法：读取文件大小
+		// PNG 全黑/全白通常非常小（高度压缩）
+		fi, _ := os.Stat(imgPath)
+		if fi != nil && fi.Size() < 5000 {
+			// < 5KB 的 PNG 极可能是纯色图片
+			utils.LogWarn("image %s is suspiciously small (%d bytes), likely blank", filepath.Base(imgPath), fi.Size())
+			return true
+		}
+		return false
+	}
+
+	// 从输出中提取 YDIF（亮度差分）或 STDAVG（标准差）
+	output := string(out)
+	// signalstats 输出格式: [Parsed_signalstats... ydif=0.000000 udif=0.000000 ...
+	// 如果 ydif 和 udif 都是 0.000000，说明图片是纯色的
+	if strings.Contains(output, "ydif=0.000000") && strings.Contains(output, "udif=0.000000") {
+		utils.LogWarn("image %s detected as blank (ydif=0, udif=0)", filepath.Base(imgPath))
+		return true
+	}
+
+	return false
+}
+
+// truncate 截断字符串
