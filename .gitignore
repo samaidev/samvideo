@@ -1,5 +1,5 @@
 # Binaries
-samvideo
+/samvideo
 *.exe
 *.dll
 *.so
