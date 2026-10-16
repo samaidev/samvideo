@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"samvideo/internal/config"
+	"samvideo/internal/llm"
 	"samvideo/internal/models"
 	"samvideo/internal/task"
 	"samvideo/internal/template"
@@ -147,7 +148,30 @@ func (s *Server) listTemplates(c *gin.Context) {
 }
 
 func (s *Server) generateScript(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "success"})
+	var req struct {
+		Subject string `json:"subject"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Subject == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "subject is required"})
+		return
+	}
+
+	// 调用 LLM 生成分镜脚本
+	script, _, scenes, err := llm.GenerateScriptWithScenes(req.Subject, "", 6, s.cfg)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":     true,
+		"script": script,
+		"scenes": scenes,
+	})
 }
 
 // ==================== Tasks ====================

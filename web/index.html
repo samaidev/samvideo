@@ -170,7 +170,13 @@ select{cursor:pointer}
   <!-- Create Tab -->
   <div id="tab-create">
     <div class="form-group"><label>视频主题</label><textarea id="video_subject" placeholder="输入视频主题，例如：人工智能改变未来生活" rows="3"></textarea></div>
-    <div class="form-group"><label>视频脚本（可选）</label><textarea id="video_script" rows="3" placeholder="留空则由AI根据主题自动生成脚本"></textarea></div>
+    <div class="form-group">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:.5rem">
+        <label style="margin:0">视频脚本</label>
+        <button class="btn btn-secondary" id="gen_script_btn" onclick="generateScript()" style="padding:.4rem .8rem;font-size:.85rem">✨ 生成视频脚本</button>
+      </div>
+      <textarea id="video_script" rows="8" placeholder="点击「生成视频脚本」按钮，AI将根据主题自动生成脚本。也可以直接在此编辑。" style="font-size:.9rem;line-height:1.6;resize:vertical;min-height:180px"></textarea>
+    </div>
     <div class="settings-grid">
       <div class="settings-card"><h3>视频设置</h3>
         <div class="form-group"><label>宽高比</label><select id="video_aspect"><option value="">自动（LLM分类）</option><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 正方形</option></select></div>
@@ -391,6 +397,32 @@ function switchTab(tab){
   if(tab==='config')loadConfig();
 }
 function toggleAdvanced(){const c=document.getElementById('advanced_content'),t=event.target;c.classList.toggle('show');t.textContent=c.classList.contains('show')?'▼ 高级设置':'▶ 高级设置'}
+
+async function generateScript(){
+  const subject=document.getElementById('video_subject').value.trim();
+  if(!subject){showToast('请先输入视频主题','error');return}
+  const btn=document.getElementById('gen_script_btn');
+  btn.disabled=true;btn.textContent='⏳ AI生成中...';
+  const ta=document.getElementById('video_script');
+  ta.value='';ta.placeholder='AI正在生成脚本，请稍候...';
+  try{
+    const r=await fetch('/api/v1/scripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject:subject})});
+    const d=await r.json();
+    if(d.ok&&d.script){
+      ta.value=d.script;
+      ta.placeholder='脚本已生成，可以在此编辑';
+      showToast('脚本生成成功！','success');
+    }else{
+      showToast('脚本生成失败: '+(d.error||'未知错误'),'error');
+      ta.placeholder='点击「生成视频脚本」按钮，AI将根据主题自动生成脚本。也可以直接在此编辑。';
+    }
+  }catch(e){
+    showToast('请求失败: '+e.message,'error');
+    ta.placeholder='点击「生成视频脚本」按钮，AI将根据主题自动生成脚本。也可以直接在此编辑。';
+  }finally{
+    btn.disabled=false;btn.textContent='✨ 生成视频脚本';
+  }
+}
 function showToast(msg,type=''){const t=document.getElementById('toast');t.textContent=msg;t.className='toast show '+type;setTimeout(()=>t.classList.remove('show'),3000)}
 function formatSize(b){if(b<1024)return b+' B';if(b<1048576)return(b/1024).toFixed(1)+' KB';return(b/1048576).toFixed(1)+' MB'}
 function renderPagination(elId,page,totalPages,total,onPage){
