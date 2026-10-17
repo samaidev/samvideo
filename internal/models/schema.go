@@ -51,6 +51,9 @@ type VideoParams struct {
 	// VideoRequirement 视频制作要求（传给LLM生成脚本时作为额外要求）
 	VideoRequirement string `json:"video_requirement,omitempty"`
 
+	// VideoScenes 前端传来的分镜数据（脚本生成API返回的scenes）
+	VideoScenes []SceneData `json:"video_scenes,omitempty"`
+
 	// Digital Human 数字人口播
 	DigitalHumanEnabled  bool   `json:"digital_human_enabled,omitempty"`
 	DigitalHumanPortrait string `json:"digital_human_portrait,omitempty"` // URL or local path to portrait photo
@@ -73,4 +76,10 @@ type TaskResult struct {
 	StartTime    time.Time    `json:"start_time"`
 	EndTime      time.Time    `json:"end_time,omitempty"`
 	Videos       []string     `json:"videos,omitempty"`
+}
+
+// SceneData 分镜数据（前端传入）
+type SceneData struct {
+	Narration   string `json:"narration"`
+	ImagePrompt string `json:"image_prompt"`
 }

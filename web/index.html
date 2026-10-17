@@ -443,6 +443,7 @@ async function generateScript(){
     if(d.ok&&d.script){
       ta.value=d.script;
       ta.placeholder='脚本已生成，可以在此编辑';
+      window.savedScenes=d.scenes||null;
       showToast('脚本生成成功！','success');
     }else{
       showToast('脚本生成失败: '+(d.error||'未知错误'),'error');
@@ -575,7 +576,8 @@ async function generateVideo(){
   if(!subject){showToast('请输入视频主题','error');return}
   const vr=document.getElementById('video_requirement').value.trim();
   const params={video_subject:subject};
-  const vr=document.getElementById('video_requirement').value.trim();if(vr)params.video_requirement=vr;
+  if(vr)params.video_requirement=vr;
+  if(window.savedScenes)params.video_scenes=window.savedScenes;
   const fields={video_aspect:'video_aspect',video_clip_duration:'video_clip_duration',video_clip_speed:'video_clip_speed',video_transition_mode:'video_transition_mode',voice_name:'voice_name',voice_rate:'voice_rate',subtitle_enabled:'subtitle_enabled',subtitle_provider:'subtitle_provider',bgm_type:'bgm_type',bgm_volume:'bgm_volume',video_source:'video_source',video_script:'video_script'};
   for(const[id,key]of Object.entries(fields)){const el=document.getElementById(id);if(!el)continue;let val=el.value.trim();if(!val)continue;if(['video_clip_duration','voice_rate','bgm_volume','video_clip_speed'].includes(key))val=parseFloat(val);if(key==='subtitle_enabled')val=val==='true';params[key]=val}
   // DH mode
@@ -684,7 +686,7 @@ function closeVideoModal(){const v=document.getElementById('modal_video');v.paus
 function closeModal(e){if(e.target===document.getElementById('video_modal'))closeVideoModal()}
 async function deleteTaskCard(tid){if(!confirm('确认删除？'))return;try{await fetch(API+'/tasks/'+tid,{method:'DELETE'});showToast('已删除','success');loadTasks()}catch(e){showToast('删除失败','error')}}
 async function deleteTaskFromModal(){if(!modalTaskId)return;if(!confirm('确认删除？'))return;try{await fetch(API+'/tasks/'+modalTaskId,{method:'DELETE'});closeVideoModal();showToast('已删除','success');loadTasks()}catch(e){showToast('删除失败','error')}}
-function resetForm(){document.getElementById('video_subject').value='';document.getElementById('video_script').value='';document.getElementById('video_requirement').value='';selectedTemplate=''}
+function resetForm(){document.getElementById('video_subject').value='';document.getElementById('video_script').value='';document.getElementById('video_requirement').value='';window.savedScenes=null;selectedTemplate=''}
 
 // Materials
 function switchMatSub(sub){matSubTab=sub;document.querySelectorAll('.sub-tab').forEach(t=>t.classList.remove('active'));event.target.classList.add('active');

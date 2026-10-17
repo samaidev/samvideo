@@ -416,8 +416,23 @@ func truncateText(s string, maxLen int) string {
 // generateScriptWithScenes 使用分镜模式生成脚本
 // 优先调用 llm.GenerateScriptWithScenes，失败时降级到旧模式
 func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *template.Template) (string, []string, []llm.Scene, error) {
-	// 如果用户提供了自定义脚本，直接用
+	// 如果用户提供了自定义脚本
 	if params.VideoScript != "" {
+		// 如果前端同时传来了 scenes，转换为 llm.Scene 使用
+		if len(params.VideoScenes) > 0 {
+			scenes := make([]llm.Scene, len(params.VideoScenes))
+			imagePrompts := make([]string, len(params.VideoScenes))
+			for i, sd := range params.VideoScenes {
+				scenes[i] = llm.Scene{
+					Narration:   sd.Narration,
+					ImagePrompt: sd.ImagePrompt,
+				}
+				imagePrompts[i] = sd.ImagePrompt
+			}
+			utils.LogInfo("using user-provided script with %d scenes", len(scenes))
+			return params.VideoScript, imagePrompts, scenes, nil
+		}
+		// 没有 scenes，用旧模式生成 terms
 		terms := params.VideoTerms
 		if len(terms) == 0 {
 			generatedTerms, err := llm.GenerateTerms(params.VideoScript, p.cfg)
@@ -425,7 +440,6 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 				terms = generatedTerms
 			}
 		}
-		// 自定义脚本没有分镜信息，返回空 scenes
 		return params.VideoScript, terms, nil, nil
 	}
 
