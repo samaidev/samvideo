@@ -29,6 +29,7 @@ type Template struct {
 	ScriptPrompt     string  `json:"script_prompt"`
 	ImagePromptStyle string  `json:"image_prompt_style"`
 	ImageCount       int     `json:"image_count"`
+	VideoRequirement string  `json:"video_requirement"`
 }
 
 // BuiltinTemplates 内置模板列表
@@ -54,6 +55,7 @@ var BuiltinTemplates = []Template{
 4. 口语化，节奏明快`,
 		ImagePromptStyle: "clean UI screenshot style, modern interface design, professional tech presentation",
 		ImageCount:       8,
+		VideoRequirement: `关键页面涉及产品名称、版本号、功能数据时，用局部半透明遮罩层高亮显示关键数据和功能图标，配以简洁标注线指向具体功能区域`,
 	},
 	{
 		ID:               "tech_app_vertical",
@@ -76,6 +78,7 @@ var BuiltinTemplates = []Template{
 4. 口语化，节奏明快`,
 		ImagePromptStyle: "mobile app screenshot style, clean interface, modern UI design",
 		ImageCount:       8,
+		VideoRequirement: `手机端展示时，关键界面涉及用户数据、通知内容、应用名称时，用局部半透明遮罩层突出显示关键数字和图标，确保竖屏下信息清晰可读`,
 	},
 	{
 		ID:               "motivational",
@@ -98,6 +101,7 @@ var BuiltinTemplates = []Template{
 4. 节奏舒缓，有停顿感`,
 		ImagePromptStyle: "cinematic landscape, golden hour photography, emotional and inspiring atmosphere",
 		ImageCount:       6,
+		VideoRequirement: `关键画面涉及励志金句、人生感悟时，用半透明深色遮罩层叠加白色大字显示核心语句，配合金色或暖色调高亮关键词`,
 	},
 	{
 		ID:               "motivational_landscape",
@@ -120,6 +124,7 @@ var BuiltinTemplates = []Template{
 4. 节奏舒缓，有停顿感`,
 		ImagePromptStyle: "wide cinematic landscape, breathtaking scenery, emotional photography",
 		ImageCount:       6,
+		VideoRequirement: `横屏风景画面中，关键励志语句用半透明遮罩层叠加显示，文字居中，关键词用对比色高亮，确保文字与风景画面层次分明`,
 	},
 	{
 		ID:               "academic",
@@ -142,6 +147,7 @@ var BuiltinTemplates = []Template{
 4. 逻辑清晰，层次分明`,
 		ImagePromptStyle: "infographic style, data visualization, clean academic presentation, charts and diagrams",
 		ImageCount:       8,
+		VideoRequirement: `关键页面涉及研究数据、统计数字、公式定理时，用局部半透明遮罩层高亮显示关键数据和图表标注，配以箭头指向具体数值，确保学术信息准确传达`,
 	},
 	{
 		ID:               "news",
@@ -164,6 +170,7 @@ var BuiltinTemplates = []Template{
 4. 节奏紧凑，有新闻感`,
 		ImagePromptStyle: "professional news photography, financial district, business environment, documentary style",
 		ImageCount:       8,
+		VideoRequirement: `关键画面涉及新闻数据、股价指数、地名地址、人名职务时，用局部半透明遮罩层显示关键信息，数据用大号字体突出，地名和人名配以图标标注`,
 	},
 	{
 		ID:               "marketing",
@@ -186,6 +193,7 @@ var BuiltinTemplates = []Template{
 4. 节奏快，有紧迫感`,
 		ImagePromptStyle: "commercial product photography, vibrant colors, marketing campaign style, eye-catching",
 		ImageCount:       8,
+		VideoRequirement: `关键页面涉及产品价格、折扣力度、品牌名称、活动时间时，用局部半透明遮罩层高亮显示价格和优惠信息，配以醒目图标和倒计时样式`,
 	},
 	{
 		ID:               "story",
@@ -208,6 +216,7 @@ var BuiltinTemplates = []Template{
 4. 节奏舒缓，有代入感`,
 		ImagePromptStyle: "cinematic storytelling, dramatic lighting, film still, narrative photography",
 		ImageCount:       6,
+		VideoRequirement: `关键画面涉及人物名称、地点场景、时间线索时，用局部半透明遮罩层显示关键叙事信息，人物名配头像图标，地点配定位图标，时间配时钟图标`,
 	},
 }
 
@@ -301,6 +310,9 @@ func ApplyTemplate(tmpl *Template, params *models.VideoParams) {
 	}
 	if tmpl.BGMVolume > 0 {
 		params.BGMVolume = tmpl.BGMVolume
+	}
+	if tmpl.VideoRequirement != "" {
+		params.VideoRequirement = tmpl.VideoRequirement
 	}
 	params.SubtitleEnabled = tmpl.SubtitleEnabled
 	if tmpl.VoiceName != "" {
