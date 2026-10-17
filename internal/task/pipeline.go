@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"path/filepath"
 	"sort"
 	"sync"
@@ -544,7 +545,39 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 		scriptPrompt = tmpl.GetScriptPrompt()
 	}
 
-	// 调用分镜模式
+	// 优先使用前端传入的 video_scenes（带 overlay 数据）
+	if len(params.VideoScenes) > 0 {
+		utils.LogInfo("using frontend-provided scenes with overlay data: %d scenes", len(params.VideoScenes))
+		scenes := make([]llm.Scene, len(params.VideoScenes))
+		imagePrompts := make([]string, len(params.VideoScenes))
+		scriptParts := make([]string, len(params.VideoScenes))
+		for i, ss := range params.VideoScenes {
+			scenes[i] = llm.Scene{
+				Narration:   ss.Narration,
+				ImagePrompt: ss.ImagePrompt,
+			}
+			// 合并 overlay 数据
+			if len(ss.Overlay) > 0 {
+				scenes[i].Overlay = make([]llm.OverlayItem, len(ss.Overlay))
+				for j, oi := range ss.Overlay {
+					scenes[i].Overlay[j] = llm.OverlayItem{
+						Text:     oi.Text,
+						Position: oi.Position,
+						Color:    oi.Color,
+						Style:    oi.Style,
+					}
+				}
+				utils.LogInfo("  scene %d: %d overlay items", i+1, len(ss.Overlay))
+			}
+			imagePrompts[i] = ss.ImagePrompt
+			scriptParts[i] = ss.Narration
+		}
+		script := strings.Join(scriptParts, "\n")
+		return script, imagePrompts, scenes, nil
+	}
+
+	// 没有前端传入的 scenes，调用 LLM 生成
+	utils.LogInfo("no frontend scenes, calling LLM to generate...")
 	script, imagePrompts, scenes, err := llm.GenerateScriptWithScenes(params.VideoSubject, scriptPrompt, params.VideoRequirement, sceneCount, p.cfg)
 	if err != nil {
 		utils.LogWarn("scene-based script generation failed: %v, falling back to legacy mode", err)
