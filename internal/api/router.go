@@ -150,6 +150,7 @@ func (s *Server) listTemplates(c *gin.Context) {
 func (s *Server) generateScript(c *gin.Context) {
 	var req struct {
 		Subject string `json:"subject"`
+		Requirement string `json:"requirement"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -161,7 +162,7 @@ func (s *Server) generateScript(c *gin.Context) {
 	}
 
 	// 调用 LLM 生成分镜脚本
-	script, _, scenes, err := llm.GenerateScriptWithScenes(req.Subject, "", 6, s.cfg)
+	script, _, scenes, err := llm.GenerateScriptWithScenes(req.Subject, "", req.Requirement, 6, s.cfg)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 		return

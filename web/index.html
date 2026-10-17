@@ -177,6 +177,10 @@ select{cursor:pointer}
       </div>
       <textarea id="video_script" rows="8" placeholder="点击「生成视频脚本」按钮，AI将根据主题自动生成脚本。也可以直接在此编辑。" style="font-size:.9rem;line-height:1.6;resize:vertical;min-height:180px"></textarea>
     </div>
+    <div class="form-group">
+      <label>视频制作要求（可选）</label>
+      <textarea id="video_requirement" rows="3" placeholder="输入视频制作要求，例如：关键页面涉及数据、名称、地址等敏感信息，要用局部半透明遮罩层显示关键数据和图标" style="font-size:.9rem;line-height:1.6;resize:vertical"></textarea>
+    </div>
     <div class="settings-grid">
       <div class="settings-card"><h3>视频设置</h3>
         <div class="form-group"><label>宽高比</label><select id="video_aspect"><option value="">自动（LLM分类）</option><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 正方形</option></select></div>
@@ -367,6 +371,34 @@ select{cursor:pointer}
   </div>
 </div>
 
+<div class="modal-overlay" id="template_edit_modal" onclick="if(event.target===this)closeTemplateEditModal()">
+  <div class="modal-content" style="max-width:520px">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
+      <h3 id="template_edit_title">编辑模板</h3>
+      <button class="btn btn-secondary btn-sm" onclick="closeTemplateEditModal()">✕</button>
+    </div>
+    <div class="settings-grid">
+      <div class="settings-card"><h3>视频设置</h3>
+        <div class="form-group"><label>宽高比</label><select id="edit_aspect"><option value="16:9">16:9 横屏</option><option value="9:16">9:16 竖屏</option><option value="1:1">1:1 正方形</option></select></div>
+        <div class="form-group"><label>片段时长(秒)</label><input type="number" id="edit_clip_duration" min="1" max="15"></div>
+        <div class="form-group"><label>播放速度</label><input type="number" id="edit_clip_speed" min="0.5" max="2.0" step="0.1"></div>
+        <div class="form-group"><label>转场模式</label><select id="edit_transition_mode"><option value="shuffle">随机</option><option value="fade_in">淡入</option><option value="fade_out">淡出</option><option value="none">无</option></select></div>
+      </div>
+      <div class="settings-card"><h3>配音/BGM</h3>
+        <div class="form-group"><label>语音音色</label><select id="edit_voice_name"><option value="zh-CN-YunxiNeural">云希（男声）</option><option value="zh-CN-YunyangNeural">云扬（男声）</option><option value="zh-CN-XiaoxiaoNeural">晓晓（女声）</option><option value="zh-CN-YunjianNeural">云健（男声）</option></select></div>
+        <div class="form-group"><label>BGM音量</label><input type="number" id="edit_bgm_volume" min="0" max="1.0" step="0.05"></div>
+      </div>
+    </div>
+    <div class="form-group" style="margin-top:.5rem">
+      <label>视频制作要求</label>
+      <textarea id="edit_requirement" rows="3" placeholder="输入视频制作要求，例如：关键页面涉及数据、名称、地址等，要用局部半透明遮罩层显示关键数据和图标" style="font-size:.9rem;line-height:1.6;resize:vertical"></textarea>
+    </div>
+    <div class="btn-row" style="margin-top:1rem">
+      <button class="btn btn-primary" onclick="saveTemplateEdit()">💾 保存</button>
+      <button class="btn btn-secondary" onclick="closeTemplateEditModal()">取消</button>
+    </div>
+  </div>
+</div>
 <div class="modal-overlay" id="video_modal" onclick="closeModal(event)">
   <div class="modal-content" onclick="event.stopPropagation()">
     <div class="modal-header"><h3 id="modal_title">视频播放</h3><button class="modal-close" onclick="closeVideoModal()">✕</button></div>
@@ -406,7 +438,7 @@ async function generateScript(){
   const ta=document.getElementById('video_script');
   ta.value='';ta.placeholder='AI正在生成脚本，请稍候...';
   try{
-    const r=await fetch('/api/v1/scripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject:subject})});
+    const r=await fetch('/api/v1/scripts',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({subject:subject,requirement:vr})});
     const d=await r.json();
     if(d.ok&&d.script){
       ta.value=d.script;
@@ -541,7 +573,9 @@ async function loadAnchors(){
 async function generateVideo(){
   const subject=document.getElementById('video_subject').value.trim();
   if(!subject){showToast('请输入视频主题','error');return}
+  const vr=document.getElementById('video_requirement').value.trim();
   const params={video_subject:subject};
+  const vr=document.getElementById('video_requirement').value.trim();if(vr)params.video_requirement=vr;
   const fields={video_aspect:'video_aspect',video_clip_duration:'video_clip_duration',video_clip_speed:'video_clip_speed',video_transition_mode:'video_transition_mode',voice_name:'voice_name',voice_rate:'voice_rate',subtitle_enabled:'subtitle_enabled',subtitle_provider:'subtitle_provider',bgm_type:'bgm_type',bgm_volume:'bgm_volume',video_source:'video_source',video_script:'video_script'};
   for(const[id,key]of Object.entries(fields)){const el=document.getElementById(id);if(!el)continue;let val=el.value.trim();if(!val)continue;if(['video_clip_duration','voice_rate','bgm_volume','video_clip_speed'].includes(key))val=parseFloat(val);if(key==='subtitle_enabled')val=val==='true';params[key]=val}
   // DH mode
@@ -566,7 +600,7 @@ function pollTask(tid){
 }
 
 // Templates
-async function loadTemplates(){try{const r=await fetch(API+'/templates');const d=await r.json();const g=document.getElementById('template_grid');g.innerHTML='';
+async function loadTemplates(){try{const r=await fetch(API+'/templates');const d=await r.json();allTemplates=d.data||[];const g=document.getElementById('template_grid');g.innerHTML='';
   (d.data||[]).forEach(t=>{const c=document.createElement('div');c.className='template-card'+(selectedTemplate===t.id?' selected':'');
     c.onclick=()=>{
       if(dhEnabled){
@@ -580,10 +614,11 @@ async function loadTemplates(){try{const r=await fetch(API+'/templates');const d
         if(selectedTemplate){applyTemplateToForm(t);goToCreateTab()}
       }
     };
-    c.innerHTML=`<h4>${t.name}</h4><p>${t.description}</p><div class="tags"><span class="tag">${t.aspect}</span><span class="tag">${t.clip_duration}s</span><span class="tag">${t.clip_speed}x</span><span class="tag">${t.transition_mode}</span><span class="tag">BGM ${t.bgm_volume}</span></div>`;g.appendChild(c)})}
+    c.innerHTML=`<h4>${t.name}</h4><p>${t.description}</p><div class="tags"><span class="tag">${t.aspect}</span><span class="tag">${t.clip_duration}s</span><span class="tag">${t.clip_speed}x</span><span class="tag">${t.transition_mode}</span><span class="tag">BGM ${t.bgm_volume}</span></div><div style="margin-top:.5rem;display:flex;gap:.3rem"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();editTemplate('${t.id}')" style="flex:1">✏️ 编辑</button><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();useTemplate('${t.id}')" style="flex:1">📋 使用</button></div>`;g.appendChild(c)})}
   catch(e){showToast('加载模板失败','error')}}
 function applyTemplateToForm(tmpl){
   if(tmpl.aspect)setVal('video_aspect',tmpl.aspect);
+  if(tmpl.video_requirement)document.getElementById('video_requirement').value=tmpl.video_requirement;
   if(tmpl.clip_duration)setVal('video_clip_duration',tmpl.clip_duration);
   if(tmpl.clip_speed)setVal('video_clip_speed',tmpl.clip_speed);
   if(tmpl.transition_mode)setVal('video_transition_mode',tmpl.transition_mode);
@@ -594,6 +629,37 @@ function applyTemplateToForm(tmpl){
 }
 function setVal(id,val){const el=document.getElementById(id);if(el)el.value=val}
 function goToCreateTab(){switchTab('create')}
+let allTemplates=[];
+let editingTemplateId='';
+function useTemplate(id){const t=allTemplates.find(x=>x.id===id);if(t){selectedTemplate=id;applyTemplateToForm(t);goToCreateTab()}}
+function editTemplate(id){
+  const t=allTemplates.find(x=>x.id===id);if(!t)return;
+  editingTemplateId=id;
+  document.getElementById('template_edit_title').textContent='编辑模板: '+t.name;
+  setVal('edit_aspect',t.aspect);setVal('edit_clip_duration',t.clip_duration);
+  setVal('edit_clip_speed',t.clip_speed);setVal('edit_transition_mode',t.transition_mode);
+  setVal('edit_voice_name',t.voice_name);setVal('edit_bgm_volume',t.bgm_volume);
+  document.getElementById('edit_requirement').value=t.video_requirement||'';
+  document.getElementById('template_edit_modal').classList.add('show');
+}
+function closeTemplateEditModal(){document.getElementById('template_edit_modal').classList.remove('show');editingTemplateId=''}
+function saveTemplateEdit(){
+  if(!editingTemplateId)return;
+  const t=allTemplates.find(x=>x.id===editingTemplateId);if(!t)return;
+  t.aspect=document.getElementById('edit_aspect').value;
+  t.clip_duration=parseInt(document.getElementById('edit_clip_duration').value)||5;
+  t.clip_speed=parseFloat(document.getElementById('edit_clip_speed').value)||1.0;
+  t.transition_mode=document.getElementById('edit_transition_mode').value;
+  t.voice_name=document.getElementById('edit_voice_name').value;
+  t.bgm_volume=parseFloat(document.getElementById('edit_bgm_volume').value)||0.1;
+  t.video_requirement=document.getElementById('edit_requirement').value;
+  // 同步到视频生成Tab
+  document.getElementById('video_requirement').value=t.video_requirement||'';
+  closeTemplateEditModal();
+  applyTemplateToForm(t);
+  showToast('模板参数已保存并应用','success');
+  goToCreateTab();
+}
 
 // Tasks
 function filterTasks(s){currentFilter=s;currentPage=1;document.querySelectorAll('.status-tab').forEach(t=>t.classList.remove('active'));event.target.closest('.status-tab').classList.add('active');loadTasks()}
@@ -618,7 +684,7 @@ function closeVideoModal(){const v=document.getElementById('modal_video');v.paus
 function closeModal(e){if(e.target===document.getElementById('video_modal'))closeVideoModal()}
 async function deleteTaskCard(tid){if(!confirm('确认删除？'))return;try{await fetch(API+'/tasks/'+tid,{method:'DELETE'});showToast('已删除','success');loadTasks()}catch(e){showToast('删除失败','error')}}
 async function deleteTaskFromModal(){if(!modalTaskId)return;if(!confirm('确认删除？'))return;try{await fetch(API+'/tasks/'+modalTaskId,{method:'DELETE'});closeVideoModal();showToast('已删除','success');loadTasks()}catch(e){showToast('删除失败','error')}}
-function resetForm(){document.getElementById('video_subject').value='';document.getElementById('video_script').value='';selectedTemplate=''}
+function resetForm(){document.getElementById('video_subject').value='';document.getElementById('video_script').value='';document.getElementById('video_requirement').value='';selectedTemplate=''}
 
 // Materials
 function switchMatSub(sub){matSubTab=sub;document.querySelectorAll('.sub-tab').forEach(t=>t.classList.remove('active'));event.target.classList.add('active');

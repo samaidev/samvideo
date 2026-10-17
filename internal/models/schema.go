@@ -48,6 +48,9 @@ type VideoParams struct {
 
 	ParagraphNumber int `json:"paragraph_number,omitempty"`
 
+	// VideoRequirement 视频制作要求（传给LLM生成脚本时作为额外要求）
+	VideoRequirement string `json:"video_requirement,omitempty"`
+
 	// Digital Human 数字人口播
 	DigitalHumanEnabled  bool   `json:"digital_human_enabled,omitempty"`
 	DigitalHumanPortrait string `json:"digital_human_portrait,omitempty"` // URL or local path to portrait photo

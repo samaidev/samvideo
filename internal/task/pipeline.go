@@ -442,7 +442,7 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 	}
 
 	// 调用分镜模式
-	script, imagePrompts, scenes, err := llm.GenerateScriptWithScenes(params.VideoSubject, scriptPrompt, sceneCount, p.cfg)
+	script, imagePrompts, scenes, err := llm.GenerateScriptWithScenes(params.VideoSubject, scriptPrompt, params.VideoRequirement, sceneCount, p.cfg)
 	if err != nil {
 		utils.LogWarn("scene-based script generation failed: %v, falling back to legacy mode", err)
 		// 降级到旧模式

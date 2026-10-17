@@ -19,7 +19,7 @@ type Scene struct {
 }
 
 // GenerateScriptWithScenes 生成分镜脚本：每段旁白对应一个画面
-func GenerateScriptWithScenes(subject, scriptPrompt string, sceneCount int, cfg *config.Config) (string, []string, []Scene, error) {
+func GenerateScriptWithScenes(subject, scriptPrompt, requirement string, sceneCount int, cfg *config.Config) (string, []string, []Scene, error) {
 	utils.LogInfo("generating scene-based script for subject: %s", subject)
 
 	if scriptPrompt == "" {
@@ -48,6 +48,10 @@ func GenerateScriptWithScenes(subject, scriptPrompt string, sceneCount int, cfg 
 
 请以JSON格式返回：
 {"scenes": [{"narration": "旁白文字", "image_prompt": "英文画面描述"}, ...]}`, scriptPrompt, subject, sceneCount)
+
+	if requirement != "" {
+		prompt += "\n\n额外要求：\n" + requirement
+	}
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
