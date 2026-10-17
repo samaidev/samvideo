@@ -80,6 +80,15 @@ type TaskResult struct {
 
 // SceneData 分镜数据（前端传入）
 type SceneData struct {
-	Narration   string `json:"narration"`
-	ImagePrompt string `json:"image_prompt"`
+	Narration   string             `json:"narration"`
+	ImagePrompt string             `json:"image_prompt"`
+	Overlay     []OverlayItemData `json:"overlay"`
+}
+
+// OverlayItemData 叠加层元素（前端传入）
+type OverlayItemData struct {
+	Text     string `json:"text"`
+	Position string `json:"position"`
+	Color    string `json:"color"`
+	Style    string `json:"style"`
 }

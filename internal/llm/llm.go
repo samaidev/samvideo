@@ -12,10 +12,19 @@ import (
 	"samvideo/internal/utils"
 )
 
-// Scene 分镜：一段旁白 + 对应的画面描述
+// Scene 分镜：一段旁白 + 对应的画面描述 + 叠加层信息
 type Scene struct {
-	Narration string `json:"narration"`   // 旁白文字（用于TTS）
-	ImagePrompt string `json:"image_prompt"` // 画面描述（用于文生图）
+	Narration   string        `json:"narration"`    // 旁白文字（用于TTS）
+	ImagePrompt string        `json:"image_prompt"` // 画面描述（用于文生图）
+	Overlay     []OverlayItem `json:"overlay"`      // 叠加层（半透明遮罩/高亮文字/箭头）
+}
+
+// OverlayItem 叠加层元素
+type OverlayItem struct {
+	Text     string `json:"text"`      // 显示的文字
+	Position string `json:"position"`  // 位置: top/center/bottom/top-left/top-right/bottom-left/bottom-right
+	Color    string `json:"color"`     // 颜色: red/green/white/yellow
+	Style    string `json:"style"`      // 样式: box(标签框)/highlight(高亮)/arrow(箭头)
 }
 
 // GenerateScriptWithScenes 生成分镜脚本：每段旁白对应一个画面
@@ -47,10 +56,11 @@ func GenerateScriptWithScenes(subject, scriptPrompt, requirement string, sceneCo
   image_prompt: "smart home morning scene, AI assistant on nightstand, warm sunlight, modern bedroom, photorealistic"
 
 请以JSON格式返回：
-{"scenes": [{"narration": "旁白文字", "image_prompt": "英文画面描述"}, ...]}`, scriptPrompt, subject, sceneCount)
+{"scenes": [{"narration": "旁白文字", "image_prompt": "英文画面描述", "overlay": [{"text": "显示文字", "position": "top/center/bottom/top-left/top-right/bottom-left/bottom-right", "color": "red/green/white/yellow", "style": "box/highlight/arrow"}]}]}`, scriptPrompt, subject, sceneCount)
 
 	if requirement != "" {
 		prompt += "\n\n额外要求：\n" + requirement
+		prompt += "\n\n重要：你必须为每个分镜生成 overlay 数组，描述如何在画面上叠加半透明遮罩层、高亮文字、箭头等视觉元素来满足上述要求。overlay 的 text 用中文，描述要显示的关键数据或标签。如果某个分镜确实不需要叠加，overlay 返回空数组。"
 	}
 
 	resp, err := callLLM(prompt, cfg)

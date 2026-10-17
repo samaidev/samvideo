@@ -351,6 +351,41 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	}
 	save(60)
 
+	// Step 5.5: 叠加 overlay 层（半透明遮罩/高亮文字/箭头）
+	if params.VideoRequirement != "" {
+		utils.LogInfo("step 5.5: applying overlay layers to clips...")
+		var overlayedClips []string
+		for i, clipPath := range clipPaths {
+			sceneIdx := i
+			if sceneIdx >= len(scenes) {
+				sceneIdx = len(scenes) - 1
+			}
+			overlayItems := scenes[sceneIdx].Overlay
+			if len(overlayItems) == 0 {
+				overlayedClips = append(overlayedClips, clipPath)
+				continue
+			}
+			overlayedPath := filepath.Join(taskDir, fmt.Sprintf("clip_%03d_overlay.mp4", i))
+			voItems := make([]video.OverlayItem, len(overlayItems))
+			for j, oi := range overlayItems {
+				voItems[j] = video.OverlayItem{
+					Text:     oi.Text,
+					Position: oi.Position,
+					Color:    oi.Color,
+					Style:    oi.Style,
+				}
+			}
+			if err := video.ApplyOverlay(clipPath, overlayedPath, voItems); err != nil {
+				utils.LogWarn("overlay failed for clip %d: %v, using original", i+1, err)
+				overlayedClips = append(overlayedClips, clipPath)
+			} else {
+				overlayedClips = append(overlayedClips, overlayedPath)
+			}
+		}
+		clipPaths = overlayedClips
+		utils.LogInfo("overlay applied to %d clips", len(clipPaths))
+	}
+
 	// Step 6: 拼接所有片段
 	utils.LogInfo("step 6: concatenating %d aligned clips...", len(clipPaths))
 	combinedPath := filepath.Join(taskDir, "combined.mp4")
