@@ -263,7 +263,10 @@ select{cursor:pointer}
         <div class="dh-portrait-grid" id="dh_portrait_grid"></div>
       </div>
     </div>
-    <h3 style="margin:1rem 0 .75rem">选择模板参数</h3>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin:1rem 0 .75rem">
+      <h3 style="margin:0">选择模板参数</h3>
+      <button class="btn btn-primary btn-sm" onclick="createTemplate()">➕ 创建模板</button>
+    </div>
     <div class="template-grid" id="template_grid"></div>
   </div>
 
@@ -376,6 +379,14 @@ select{cursor:pointer}
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1rem">
       <h3 id="template_edit_title">编辑模板</h3>
       <button class="btn btn-secondary btn-sm" onclick="closeTemplateEditModal()">✕</button>
+    </div>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>模板名称</label>
+      <input type="text" id="edit_template_name" placeholder="输入模板名称">
+    </div>
+    <div class="form-group" style="margin-bottom:.75rem">
+      <label>模板描述</label>
+      <input type="text" id="edit_template_desc" placeholder="简要描述模板用途">
     </div>
     <div class="settings-grid">
       <div class="settings-card"><h3>视频设置</h3>
@@ -633,34 +644,81 @@ function setVal(id,val){const el=document.getElementById(id);if(el)el.value=val}
 function goToCreateTab(){switchTab('create')}
 let allTemplates=[];
 let editingTemplateId='';
+let isNewTemplate=false;
 function useTemplate(id){const t=allTemplates.find(x=>x.id===id);if(t){selectedTemplate=id;applyTemplateToForm(t);goToCreateTab()}}
 function editTemplate(id){
   const t=allTemplates.find(x=>x.id===id);if(!t)return;
   editingTemplateId=id;
+  isNewTemplate=false;
   document.getElementById('template_edit_title').textContent='编辑模板: '+t.name;
+  document.getElementById('edit_template_name').value=t.name;
+  document.getElementById('edit_template_desc').value=t.description||'';
+  document.getElementById('edit_template_name').disabled=true;
   setVal('edit_aspect',t.aspect);setVal('edit_clip_duration',t.clip_duration);
   setVal('edit_clip_speed',t.clip_speed);setVal('edit_transition_mode',t.transition_mode);
   setVal('edit_voice_name',t.voice_name);setVal('edit_bgm_volume',t.bgm_volume);
   document.getElementById('edit_requirement').value=t.video_requirement||'';
   document.getElementById('template_edit_modal').classList.add('show');
 }
+function createTemplate(){
+  editingTemplateId='';
+  isNewTemplate=true;
+  document.getElementById('template_edit_title').textContent='创建新模板';
+  document.getElementById('edit_template_name').value='';
+  document.getElementById('edit_template_name').disabled=false;
+  document.getElementById('edit_template_desc').value='';
+  setVal('edit_aspect','16:9');setVal('edit_clip_duration',5);
+  setVal('edit_clip_speed','1.0');setVal('edit_transition_mode','shuffle');
+  setVal('edit_voice_name','zh-CN-YunxiNeural');setVal('edit_bgm_volume','0.10');
+  document.getElementById('edit_requirement').value='';
+  document.getElementById('template_edit_modal').classList.add('show');
+}
 function closeTemplateEditModal(){document.getElementById('template_edit_modal').classList.remove('show');editingTemplateId=''}
 function saveTemplateEdit(){
-  if(!editingTemplateId)return;
-  const t=allTemplates.find(x=>x.id===editingTemplateId);if(!t)return;
-  t.aspect=document.getElementById('edit_aspect').value;
-  t.clip_duration=parseInt(document.getElementById('edit_clip_duration').value)||5;
-  t.clip_speed=parseFloat(document.getElementById('edit_clip_speed').value)||1.0;
-  t.transition_mode=document.getElementById('edit_transition_mode').value;
-  t.voice_name=document.getElementById('edit_voice_name').value;
-  t.bgm_volume=parseFloat(document.getElementById('edit_bgm_volume').value)||0.1;
-  t.video_requirement=document.getElementById('edit_requirement').value;
-  // 同步到视频生成Tab
-  document.getElementById('video_requirement').value=t.video_requirement||'';
-  closeTemplateEditModal();
-  applyTemplateToForm(t);
-  showToast('模板参数已保存并应用','success');
-  goToCreateTab();
+  const aspect=document.getElementById('edit_aspect').value;
+  const clip_duration=parseInt(document.getElementById('edit_clip_duration').value)||5;
+  const clip_speed=parseFloat(document.getElementById('edit_clip_speed').value)||1.0;
+  const transition_mode=document.getElementById('edit_transition_mode').value;
+  const voice_name=document.getElementById('edit_voice_name').value;
+  const bgm_volume=parseFloat(document.getElementById('edit_bgm_volume').value)||0.1;
+  const requirement=document.getElementById('edit_requirement').value;
+  const name=document.getElementById('edit_template_name').value.trim();
+  const desc=document.getElementById('edit_template_desc').value.trim();
+
+  if(isNewTemplate){
+    if(!name){showToast('请输入模板名称','error');return}
+    const id='custom_'+Date.now();
+    const t={id:id,name:name,description:desc||'自定义模板',category:'custom',
+      aspect:aspect,clip_duration:clip_duration,clip_speed:clip_speed,
+      transition_mode:transition_mode,bgm_type:'random',bgm_volume:bgm_volume,
+      subtitle_enabled:true,voice_name:voice_name,video_requirement:requirement};
+    allTemplates.push(t);
+    loadTemplateGrid();
+    closeTemplateEditModal();
+    showToast('模板「'+name+'」已创建','success');
+  }else{
+    if(!editingTemplateId)return;
+    const t=allTemplates.find(x=>x.id===editingTemplateId);if(!t)return;
+    t.aspect=aspect;t.clip_duration=clip_duration;t.clip_speed=clip_speed;
+    t.transition_mode=transition_mode;t.voice_name=voice_name;
+    t.bgm_volume=bgm_volume;t.video_requirement=requirement;
+    document.getElementById('video_requirement').value=t.video_requirement||'';
+    loadTemplateGrid();
+    closeTemplateEditModal();
+    applyTemplateToForm(t);
+    showToast('模板参数已保存并应用','success');
+    goToCreateTab();
+  }
+}
+function loadTemplateGrid(){
+  const g=document.getElementById('template_grid');g.innerHTML='';
+  allTemplates.forEach(t=>{
+    const c=document.createElement('div');
+    c.className='template-card'+(selectedTemplate===t.id?' selected':'');
+    c.onclick=()=>{selectedTemplate=selectedTemplate===t.id?'':t.id;loadTemplateGrid();if(selectedTemplate){applyTemplateToForm(t);goToCreateTab()}};
+    c.innerHTML=`<h4>${t.name}</h4><p>${t.description||''}</p><div class="tags"><span class="tag">${t.aspect}</span><span class="tag">${t.clip_duration}s</span><span class="tag">${t.clip_speed}x</span><span class="tag">${t.transition_mode}</span><span class="tag">BGM ${t.bgm_volume}</span></div><div style="margin-top:.5rem;display:flex;gap:.3rem"><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();editTemplate('${t.id}')" style="flex:1">✏️ 编辑</button><button class="btn btn-secondary btn-sm" onclick="event.stopPropagation();useTemplate('${t.id}')" style="flex:1">📋 使用</button></div>`;
+    g.appendChild(c);
+  });
 }
 
 // Tasks

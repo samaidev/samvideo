@@ -218,6 +218,52 @@ var BuiltinTemplates = []Template{
 		ImageCount:       6,
 		VideoRequirement: `关键画面涉及人物名称、地点场景、时间线索时，用局部半透明遮罩层显示关键叙事信息，人物名配头像图标，地点配定位图标，时间配时钟图标`,
 	},
+	{
+		ID:               "code_project",
+		Name:             "代码项目介绍",
+		Description:      "适合开源项目、技术架构、代码展示类内容",
+		Category:         "tech",
+		Aspect:           "16:9",
+		ClipDuration:     5,
+		ClipSpeed:        1.0,
+		TransitionMode:   "shuffle",
+		BGMType:          "random",
+		BGMVolume:        0.10,
+		SubtitleEnabled:  true,
+		VoiceName:        "zh-CN-YunxiNeural",
+		ScriptPrompt:     `你是一个技术布道者。请根据主题写一段约200字的短视频解说脚本。
+要求：
+1. 语言专业但不枯燥，像在向开发者介绍一个项目
+2. 突出技术亮点、架构设计和核心功能
+3. 适合配合代码截图、架构图、终端演示展示
+4. 节奏明快，有技术感`, 
+		ImagePromptStyle: "clean code editor screenshot, terminal output, architecture diagram, modern IDE interface, dark theme, syntax highlighting",
+		ImageCount:       8,
+		VideoRequirement: `关键页面涉及项目名称、GitHub星数、版本号、技术栈名称时，用局部半透明遮罩层高亮显示关键数据和技术标签，代码片段用深色背景框突出显示，配以语言图标标注`,
+	},
+	{
+		ID:               "finance_news",
+		Name:             "新闻财经",
+		Description:      "适合财经分析、股市行情、经济政策解读类内容",
+		Category:         "news",
+		Aspect:           "16:9",
+		ClipDuration:     4,
+		ClipSpeed:        1.3,
+		TransitionMode:   "shuffle",
+		BGMType:          "random",
+		BGMVolume:        0.10,
+		SubtitleEnabled:  true,
+		VoiceName:        "zh-CN-YunxiNeural",
+		ScriptPrompt:     `你是一个资深财经分析师。请根据主题写一段约200字的短视频解说脚本。
+要求：
+1. 语言专业客观，数据准确
+2. 突出关键经济指标、政策影响和市场趋势
+3. 适合配合K线图、数据面板、新闻截图展示
+4. 节奏紧凑，有权威感`, 
+		ImagePromptStyle: "professional financial news studio, stock market charts, economic data dashboard, business news photography",
+		ImageCount:       8,
+		VideoRequirement: `关键画面涉及股价数据、涨跌幅、经济指标、政策名称时，用局部半透明遮罩层高亮显示关键数字，涨用红色跌用绿色标注，数据配以趋势箭头图标，政策名称用醒目标签框`,
+	},
 }
 
 // ClassifyTopic 用 LLM 对用户主题进行分类，返回最佳模板
