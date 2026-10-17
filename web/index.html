@@ -206,6 +206,7 @@ select{cursor:pointer}
     </div>
     <div class="btn-row" style="margin-top:1rem;">
       <button class="btn btn-primary" id="generate_btn" onclick="generateVideo()">🎬 生成视频</button>
+      <button class="btn btn-accent" id="stop_btn" onclick="stopVideo()" style="display:none">⏹ 停止</button>
       <button class="btn btn-secondary" onclick="resetForm()">重置</button>
     </div>
     <div id="current_task" style="display:none;">
@@ -596,13 +597,27 @@ async function generateVideo(){
   if(dhEnabled){params.digital_human_enabled=true;if(selectedPortrait)params.digital_human_portrait='/api/v1/digital-human/portrait/'+encodeURIComponent(selectedPortrait)}
   let url=API+'/videos';if(selectedTemplate)url+='?template_id='+selectedTemplate;
   document.getElementById('generate_btn').disabled=true;document.getElementById('generate_btn').textContent='⏳ 生成中...';
+  document.getElementById('stop_btn').style.display='inline-block';
   try{const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(params)});const d=await r.json();
     if(d.status===200){const tid=d.data.task_id;showToast('任务已提交:'+tid.substring(0,8)+'...','success');document.getElementById('current_task').style.display='block';document.getElementById('current_subject').textContent=subject;pollTask(tid)}
     else{showToast('提交失败:'+(d.error||''),'error');resetBtn()}
   }catch(e){showToast('网络错误:'+e.message,'error');resetBtn()}
 }
-function resetBtn(){document.getElementById('generate_btn').disabled=false;document.getElementById('generate_btn').textContent='🎬 生成视频'}
+function resetBtn(){document.getElementById('generate_btn').disabled=false;document.getElementById('generate_btn').textContent='🎬 生成视频';document.getElementById('stop_btn').style.display='none'}
+async function stopVideo(){
+  if(!currentTaskId){resetBtn();return}
+  if(!confirm('确定要停止当前视频生成吗？'))return;
+  try{const r=await fetch(API+'/tasks/'+currentTaskId+'/cancel',{method:'POST'});const d=await r.json();
+    if(d.status===200){showToast('已发送停止请求','success')}
+    else{showToast('停止失败: '+(d.error||''),'error')}
+  }catch(e){showToast('网络错误:'+e.message,'error')}
+  if(pollTimer){clearInterval(pollTimer);pollTimer=null}
+  resetBtn();
+  document.getElementById('current_status').textContent='已取消';
+  document.getElementById('current_status').style.color='var(--accent)';
+}
 function pollTask(tid){
+  currentTaskId=tid;
   if(pollTimer)clearInterval(pollTimer);
   pollTimer=setInterval(async()=>{try{const r=await fetch(API+'/tasks/'+tid);const d=await r.json();const t=d.data;if(!t)return;
     document.getElementById('current_progress').textContent=(t.progress||0)+'%';document.getElementById('current_progress_bar').style.width=(t.progress||0)+'%';

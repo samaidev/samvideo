@@ -45,6 +45,7 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/tasks", s.listTasks)
 		v1.GET("/tasks/:task_id", s.getTask)
 		v1.DELETE("/tasks/:task_id", s.deleteTask)
+	v1.POST("/tasks/:task_id/cancel", s.cancelTask)
 		v1.GET("/download/:task_id/:filename", s.downloadFile)
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
 		v1.GET("/templates", s.listTemplates)
@@ -241,6 +242,15 @@ func (s *Server) deleteTask(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "deleted"})
+}
+
+func (s *Server) cancelTask(c *gin.Context) {
+	taskID := c.Param("task_id")
+	if s.pipeline.CancelTask(taskID) {
+		c.JSON(http.StatusOK, gin.H{"status": 200, "message": "cancelled"})
+	} else {
+		c.JSON(http.StatusNotFound, gin.H{"error": "task not found or already finished"})
+	}
 }
 
 func (s *Server) downloadFile(c *gin.Context) {

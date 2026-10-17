@@ -23,12 +23,55 @@ import (
 
 // Pipeline 任务编排器
 type Pipeline struct {
-	cfg *config.Config
-	mu  sync.Mutex
+	cfg     *config.Config
+	mu      sync.Mutex
+	cancels map[string]chan struct{} // taskID -> cancel channel
 }
 
 func NewPipeline(cfg *config.Config) *Pipeline {
-	return &Pipeline{cfg: cfg}
+	return &Pipeline{cfg: cfg, cancels: make(map[string]chan struct{})}
+}
+
+// CancelTask 取消正在运行的任务
+func (p *Pipeline) CancelTask(taskID string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if ch, ok := p.cancels[taskID]; ok {
+		close(ch)
+		delete(p.cancels, taskID)
+		return true
+	}
+	return false
+}
+
+// isCancelled 检查任务是否被取消
+func (p *Pipeline) isCancelled(taskID string) bool {
+	p.mu.Lock()
+	ch, ok := p.cancels[taskID]
+	p.mu.Unlock()
+	if !ok {
+		return true // 不在 map 里说明已取消或已完成
+	}
+	select {
+	case <-ch:
+		return true
+	default:
+		return false
+	}
+}
+
+// startCancel 注册任务可取消
+func (p *Pipeline) startCancel(taskID string) {
+	p.mu.Lock()
+	p.cancels[taskID] = make(chan struct{})
+	p.mu.Unlock()
+}
+
+// finishCancel 任务完成时清理
+func (p *Pipeline) finishCancel(taskID string) {
+	p.mu.Lock()
+	delete(p.cancels, taskID)
+	p.mu.Unlock()
 }
 
 // CleanupStaleTasks 清理上次未完成的任务（服务重启后 goroutine 已死，标记为 failed）
@@ -72,6 +115,8 @@ func (p *Pipeline) RunTask(params *models.VideoParams) (*models.TaskResult, erro
 }
 
 func (p *Pipeline) RunTaskWithID(taskID string, params *models.VideoParams) (*models.TaskResult, error) {
+	p.startCancel(taskID)
+	defer p.finishCancel(taskID)
 	taskDir := filepath.Join(p.cfg.StorageDir, "tasks", taskID)
 	if err := os.MkdirAll(taskDir, 0755); err != nil {
 		return nil, fmt.Errorf("create task dir: %w", err)
@@ -297,6 +342,9 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	}
 	save(30)
 
+	if p.isCancelled(taskID) {
+		return nil, fmt.Errorf("任务已取消")
+	}
 	// Step 4: 逐段生成图片——用 scene 的 image_prompt 生成图片
 	utils.LogInfo("step 4: generating images for each scene...")
 	var imgPaths []string
@@ -317,6 +365,9 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	}
 	save(50)
 
+	if p.isCancelled(taskID) {
+		return nil, fmt.Errorf("任务已取消")
+	}
 	// Step 5: 图片转视频片段——每段时长=对应语音时长
 	utils.LogInfo("step 5: converting images to video clips with aligned durations...")
 	var clipPaths []string
@@ -386,6 +437,9 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 		utils.LogInfo("overlay applied to %d clips", len(clipPaths))
 	}
 
+	if p.isCancelled(taskID) {
+		return nil, fmt.Errorf("任务已取消")
+	}
 	// Step 6: 拼接所有片段
 	utils.LogInfo("step 6: concatenating %d aligned clips...", len(clipPaths))
 	combinedPath := filepath.Join(taskDir, "combined.mp4")
