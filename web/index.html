@@ -444,6 +444,7 @@ function toggleAdvanced(){const c=document.getElementById('advanced_content'),t=
 async function generateScript(){
   const subject=document.getElementById('video_subject').value.trim();
   if(!subject){showToast('请先输入视频主题','error');return}
+  const vr=document.getElementById('video_requirement').value.trim();
   const btn=document.getElementById('gen_script_btn');
   btn.disabled=true;btn.textContent='⏳ AI生成中...';
   const ta=document.getElementById('video_script');
