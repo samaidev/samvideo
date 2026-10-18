@@ -2,6 +2,7 @@ package video
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"os"
@@ -598,10 +599,9 @@ func ConcatenateAudioFiles(audioPaths []string, outputPath string) error {
 }
 
 // ApplyOverlay 在视频片段上叠加半透明遮罩层、高亮文字、箭头等
-// overlayItems 来自 LLM 生成的分镜数据
+// 使用 Python PIL 在图片上画 overlay，然后重新生成视频片段
 func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) error {
 	if len(overlayItems) == 0 {
-		// 没有叠加层，直接复制
 		data, err := os.ReadFile(inputPath)
 		if err != nil {
 			return err
@@ -609,39 +609,54 @@ func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) erro
 		return os.WriteFile(outputPath, data, 0644)
 	}
 
-	// 构建 drawtext 滤镜链
-	var filters []string
-	for _, item := range overlayItems {
-		filter := buildOverlayFilter(item)
-		if filter != "" {
-			filters = append(filters, filter)
-		}
+	// 1. 从视频片段提取第一帧作为图片
+	tmpFrame := outputPath + "_frame.png"
+	extractCtx, extractCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer extractCancel()
+	extractCmd := exec.CommandContext(extractCtx, "ffmpeg", "-y", "-i", inputPath, "-frames:v", "1", "-q:v", "2", tmpFrame)
+	if out, err := extractCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("extract frame: %w, output: %s", err, string(out))
 	}
+	defer os.Remove(tmpFrame)
 
-	if len(filters) == 0 {
-		// 没有有效的叠加层
-		data, _ := os.ReadFile(inputPath)
-		return os.WriteFile(outputPath, data, 0644)
+	// 2. 用 Python PIL 在图片上画 overlay
+	overlayedFrame := outputPath + "_overlayed.png"
+	overlayJSON, _ := json.Marshal(overlayItems)
+	scriptPath := filepath.Join(filepath.Dir(os.Args[0]), "scripts", "overlay_image.py")
+	if _, err := os.Stat(scriptPath); err != nil {
+		// 尝试相对路径
+		scriptPath = "scripts/overlay_image.py"
 	}
+	pilCtx, pilCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer pilCancel()
+	pilCmd := exec.CommandContext(pilCtx, "python3", scriptPath, tmpFrame, overlayedFrame, string(overlayJSON))
+	if out, err := pilCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("PIL overlay: %w, output: %s", err, string(out))
+	}
+	defer os.Remove(overlayedFrame)
 
-	vf := strings.Join(filters, ",")
+	// 3. 获取原视频时长
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer probeCancel()
+	probeCmd := exec.CommandContext(probeCtx, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", inputPath)
+	durationBytes, _ := probeCmd.Output()
+	duration := strings.TrimSpace(string(durationBytes))
 
+	// 4. 用 overlay 图片重新生成视频片段（保持原时长）
 	args := []string{
-		"-y", "-i", inputPath,
-		"-vf", vf,
+		"-y", "-loop", "1", "-i", overlayedFrame,
+		"-t", duration,
 		"-c:v", "libx264", "-preset", "fast", "-crf", "23",
 		"-pix_fmt", "yuv420p",
+		"-vf", "scale=1920:1080",
 		"-an",
-		"-shortest",
 		outputPath,
 	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		return fmt.Errorf("ffmpeg overlay: %w, output: %s", err, string(out))
+	encCtx, encCancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer encCancel()
+	encCmd := exec.CommandContext(encCtx, "ffmpeg", args...)
+	if out, err := encCmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("re-encode with overlay: %w, output: %s", err, string(out))
 	}
 	return nil
 }
@@ -654,71 +669,4 @@ type OverlayItem struct {
 	Style    string
 }
 
-// buildOverlayFilter 构建单个叠加层的 ffmpeg 滤镜
-func buildOverlayFilter(item OverlayItem) string {
-	if item.Text == "" {
-		return ""
-	}
 
-	// 颜色映射
-	colorMap := map[string]string{
-		"red":    "&H000000FF&", // 红色 (BGR)
-		"green":  "&H0000FF00&", // 绿色
-		"white":  "&HFFFFFF&",   // 白色
-		"yellow": "&H0000FFFF&", // 黄色
-	}
-	color := colorMap[item.Color]
-	if color == "" {
-		color = "&HFFFFFF&" // 默认白色
-	}
-
-	// 位置映射 (x, y) 基于视频左上角
-	// 假设视频 1920x1080
-	posMap := map[string][2]int{
-		"top":           {960, 50},
-		"center":        {960, 540},
-		"bottom":        {960, 1000},
-		"top-left":      {100, 50},
-		"top-right":     {1820, 50},
-		"bottom-left":   {100, 1000},
-		"bottom-right":  {1820, 1000},
-	}
-	pos, ok := posMap[item.Position]
-	if !ok {
-		pos = posMap["bottom"]
-	}
-	x, y := pos[0], pos[1]
-
-	// 转义文字中的特殊字符
-	escapedText := escapeDrawText(item.Text)
-
-	// 根据样式构建滤镜
-	switch item.Style {
-	case "box":
-		// 半透明背景框 + 文字
-		return fmt.Sprintf("drawbox=x=%d:y=%d:w=400:h=60:color=black@0.5:t=fill,drawtext=text='%s':x=%d+10:y=%d+15:fontsize=28:fontcolor=%s",
-			x-200, y-30, escapedText, x-190, y-15, color)
-	case "highlight":
-		// 高亮文字（大字号 + 描边）
-		return fmt.Sprintf("drawtext=text='%s':x=%d:y=%d:fontsize=42:fontcolor=%s:borderw=2:bordercolor=black",
-			escapedText, x, y, color)
-	case "arrow":
-		// 箭头用文字模拟（→ ↑ ↓ ←）
-		arrowText := "→ " + escapedText
-		return fmt.Sprintf("drawtext=text='%s':x=%d:y=%d:fontsize=32:fontcolor=%s:borderw=1:bordercolor=black",
-			arrowText, x, y, color)
-	default:
-		// 默认：半透明背景框 + 文字
-		return fmt.Sprintf("drawbox=x=%d:y=%d:w=400:h=60:color=black@0.5:t=fill,drawtext=text='%s':x=%d+10:y=%d+15:fontsize=28:fontcolor=%s",
-			x-200, y-30, escapedText, x-190, y-15, color)
-	}
-}
-
-// escapeDrawText 转义 drawtext 中的特殊字符
-func escapeDrawText(text string) string {
-	text = strings.ReplaceAll(text, "\\", "\\\\")
-	text = strings.ReplaceAll(text, "'", "\\'")
-	text = strings.ReplaceAll(text, ":", "\\:")
-	text = strings.ReplaceAll(text, "%", "\\%")
-	return text
-}
