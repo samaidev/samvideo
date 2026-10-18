@@ -38,7 +38,10 @@ func GenerateScriptWithScenes(subject, scriptPrompt, requirement string, sceneCo
 		sceneCount = 6
 	}
 
+	now := time.Now().Format("2006-01-02 15:04 Monday")
 	prompt := fmt.Sprintf(`%s
+
+当前时间：` + now + `
 
 请根据主题"%s"创作一个%d个分镜的短视频脚本。
 
@@ -110,7 +113,7 @@ func GenerateScriptWithPrompt(subject, scriptPrompt string, imageCount int, cfg 
 	utils.LogInfo("generating script for subject: %s", subject)
 
 	if scriptPrompt == "" {
-		scriptPrompt = `你是一个专业的短视频脚本撰写人。请根据主题撰写一段约200字的短视频解说脚本。
+		scriptPrompt = `你是一个专业的短视频脚本撰写人。当前时间：" + now + "\n\n请根据主题撰写一段约200字的短视频解说脚本。
 要求：
 1. 内容专业、信息密度高
 2. 语言口语化，适合语音朗读
