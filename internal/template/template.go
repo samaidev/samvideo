@@ -333,6 +333,16 @@ func SelectTemplate(category, aspect string) *Template {
 }
 
 // GetDefaultTemplate 返回默认模板
+// GetTemplate 按 ID 查找模板
+func GetTemplate(id string) *Template {
+	for i := range BuiltinTemplates {
+		if BuiltinTemplates[i].ID == id {
+			return &BuiltinTemplates[i]
+		}
+	}
+	return nil
+}
+
 func GetDefaultTemplate() *Template {
 	return &BuiltinTemplates[4] // academic 16:9
 }

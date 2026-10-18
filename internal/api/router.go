@@ -17,6 +17,7 @@ import (
 	"samvideo/internal/llm"
 	"samvideo/internal/models"
 	"samvideo/internal/task"
+	"samvideo/internal/utils"
 	"samvideo/internal/template"
 
 	"github.com/gin-gonic/gin"
@@ -152,8 +153,9 @@ func (s *Server) listTemplates(c *gin.Context) {
 
 func (s *Server) generateScript(c *gin.Context) {
 	var req struct {
-		Subject string `json:"subject"`
+		Subject     string `json:"subject"`
 		Requirement string `json:"requirement"`
+		TemplateID  string `json:"template_id"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -164,8 +166,24 @@ func (s *Server) generateScript(c *gin.Context) {
 		return
 	}
 
+	// 查找模板，获取 ScriptPrompt
+	scriptPrompt := ""
+	if req.TemplateID != "" {
+		tmpl := template.GetTemplate(req.TemplateID)
+		if tmpl != nil {
+			scriptPrompt = tmpl.ScriptPrompt
+			// 如果用户没填 requirement，用模板的 VideoRequirement
+			if req.Requirement == "" {
+				req.Requirement = tmpl.VideoRequirement
+			}
+			utils.LogInfo("generateScript: using template '%s' (%s), scriptPrompt length=%d", tmpl.Name, tmpl.ID, len(scriptPrompt))
+		}
+	} else {
+		utils.LogInfo("generateScript: no template selected, using default prompt")
+	}
+
 	// 调用 LLM 生成分镜脚本
-	script, _, scenes, err := llm.GenerateScriptWithScenes(req.Subject, "", req.Requirement, 6, s.cfg)
+	script, _, scenes, err := llm.GenerateScriptWithScenes(req.Subject, scriptPrompt, req.Requirement, 6, s.cfg)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 		return
