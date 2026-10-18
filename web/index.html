@@ -351,6 +351,11 @@ select{cursor:pointer}
         <div class="form-group"><label>图片尺寸</label><input type="text" id="cfg_image_size" placeholder="1280x720"></div>
         <div class="form-group"><label>图片 API Key</label><input type="password" id="cfg_image_api_key" placeholder="sk-..."></div>
       </div>
+      <div class="btn-row" style="margin-top:.5rem">
+        <button class="btn btn-primary btn-sm" onclick="saveConfig()">💾 保存配置</button>
+        <button class="btn btn-secondary btn-sm" onclick="testImage()">🧪 测试连接</button>
+      </div>
+      <div id="image_test_result" style="display:none"></div>
     </div>
     <div class="config-card">
       <h3>🎬 视频生成模型配置</h3>
@@ -830,6 +835,20 @@ async function testLLM(){
   const el=document.getElementById('llm_test_result');el.style.display='block';el.className='config-test-result';el.textContent='测试中...';
   try{const r=await fetch(API+'/config/test',{method:'POST'});const d=await r.json();
     if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型回复: '+d.reply}
+    else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
+  }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
+
+async function testImage(){
+  const el=document.getElementById('image_test_result');el.style.display='block';el.className='config-test-result';el.textContent='测试中...';
+  try{const r=await fetch(API+'/config/test-image',{method:'POST'});const d=await r.json();
+    if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
+    else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
+  }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
+
+async function testVideo(){
+  const el=document.getElementById('video_test_result');el.style.display='block';el.className='config-test-result';el.textContent='测试中...';
+  try{const r=await fetch(API+'/config/test-video',{method:'POST'});const d=await r.json();
+    if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
     else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
   }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
 </script>
