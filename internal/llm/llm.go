@@ -3,6 +3,8 @@ package llm
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"io"
 	"net/http"
 	"time"
@@ -45,25 +47,46 @@ func GenerateScriptWithScenes(subject, scriptPrompt, requirement string, sceneCo
 
 请根据主题"%s"创作一个%d个分镜的短视频脚本。
 
-核心要求：
-1. 每个分镜包含 narration（旁白）和 image_prompt（画面描述）
-2. narration 是这个分镜的旁白文字，中文，口语化，适合语音朗读，每段约30-50字
-3. image_prompt 是这个分镜画面的英文描述，必须与旁白内容直接相关
-4. image_prompt 要具体有画面感，描述旁白中提到的场景、人物、物体或概念
-5. 所有分镜的旁白连起来是一段完整的解说
-6. 不要包含任何标记符号（如#、*等）
+【核心要求】
+1. 每个分镜包含三个字段：narration（旁白）、image_prompt（画面描述）、overlay（叠加层）
+2. narration：中文旁白，口语化，适合语音朗读，每段约30-50字
+3. image_prompt：英文画面描述，必须与旁白内容直接相关
+4. overlay：数组，每个元素描述一个叠加在画面上的视觉元素。必须为每个分镜生成overlay！
 
-示例：
+【overlay字段说明】
+- text：要显示的中文文字（关键数据、标签、名称等）
+- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
+- color：颜色，可选值：red/green/white/yellow
+- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
+
+【示例】
+主题"A股四季度展望"的分镜1：
+{
+  "narration": "四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。",
+  "image_prompt": "stock market trading floor with large screens showing slight dips, worried investors, cinematic",
+  "overlay": [
+    {"text": "四季度市场展望", "position": "top", "color": "yellow", "style": "highlight"},
+    {"text": "市场情绪谨慎", "position": "bottom", "color": "white", "style": "box"}
+  ]
+}
+
 主题"人工智能改变生活"的分镜1：
-  narration: "从清晨的闹钟到深夜的推荐算法，AI已经无处不在。"
-  image_prompt: "smart home morning scene, AI assistant on nightstand, warm sunlight, modern bedroom, photorealistic"
+{
+  "narration": "从清晨的闹钟到深夜的推荐算法，AI已经无处不在。",
+  "image_prompt": "smart home morning scene, AI assistant on nightstand, warm sunlight, modern bedroom",
+  "overlay": [
+    {"text": "AI无处不在", "position": "center", "color": "white", "style": "highlight"}
+  ]
+}
 
 请以JSON格式返回：
-{"scenes": [{"narration": "旁白文字", "image_prompt": "英文画面描述", "overlay": [{"text": "显示文字", "position": "top/center/bottom/top-left/top-right/bottom-left/bottom-right", "color": "red/green/white/yellow", "style": "box/highlight/arrow"}]}]}`, scriptPrompt, subject, sceneCount)
+{"scenes": [{"narration": "...", "image_prompt": "...", "overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}]}
+
+注意：overlay 数组不能为 null，至少包含一个元素。如果画面确实不需要叠加，返回空数组 []。`, scriptPrompt, subject, sceneCount)
 
 	if requirement != "" {
-		prompt += "\n\n额外要求：\n" + requirement
-		prompt += "\n\n重要：你必须为每个分镜生成 overlay 数组，描述如何在画面上叠加半透明遮罩层、高亮文字、箭头等视觉元素来满足上述要求。overlay 的 text 用中文，描述要显示的关键数据或标签。如果某个分镜确实不需要叠加，overlay 返回空数组。"
+		prompt += "\n\n【视频制作要求】\n" + requirement
+		prompt += "\n\n你必须根据上述要求，为每个分镜的 overlay 数组生成具体的叠加内容。例如要求提到'涨用红色跌用绿色'，则涉及涨跌数据的分镜 overlay 里 color 用 red 或 green。"
 	}
 
 	resp, err := callLLM(prompt, cfg)
@@ -313,4 +336,65 @@ func maskKey(key string) string {
 		return "****"
 	}
 	return key[:4] + "****" + key[len(key)-4:]
+}
+
+
+// autoGenerateOverlay 当 LLM 没有生成 overlay 时，从旁白文本自动提取关键数据生成叠加层
+func AutoGenerateOverlay(narration, requirement string) []OverlayItem {
+	if narration == "" {
+		return nil
+	}
+	var items []OverlayItem
+
+	// 提取数字+%（涨跌幅）
+	rePercent := regexp.MustCompile(`(\d+\.?\d*)\s*%`)
+	matches := rePercent.FindAllStringSubmatch(narration, -1)
+	for _, m := range matches {
+		num := m[1]
+		f, _ := strconv.ParseFloat(num, 64)
+		color := "white"
+		style := "highlight"
+		if strings.Contains(requirement, "涨") && strings.Contains(requirement, "红") {
+			if f > 0 {
+				color = "red"
+			} else {
+				color = "green"
+			}
+		}
+		items = append(items, OverlayItem{
+			Text:     num + "%",
+			Position: "top-right",
+			Color:    color,
+			Style:    style,
+		})
+	}
+
+	// 提取数字+亿/万（金额数据）
+	reMoney := regexp.MustCompile(`(\d+\.?\d*)\s*(亿|万)`)
+	matches = reMoney.FindAllStringSubmatch(narration, -1)
+	for _, m := range matches {
+		items = append(items, OverlayItem{
+			Text:     m[0],
+			Position: "bottom-right",
+			Color:    "yellow",
+			Style:    "box",
+		})
+	}
+
+	// 如果没有提取到任何数据，至少加一个标题 overlay
+	if len(items) == 0 {
+		// 取旁白前10个字作为标题
+		title := narration
+		if len([]rune(title)) > 12 {
+			title = string([]rune(title)[:12])
+		}
+		items = append(items, OverlayItem{
+			Text:     title,
+			Position: "top",
+			Color:    "white",
+			Style:    "box",
+		})
+	}
+
+	return items
 }

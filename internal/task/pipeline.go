@@ -567,7 +567,13 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 						Style:    oi.Style,
 					}
 				}
-				utils.LogInfo("  scene %d: %d overlay items", i+1, len(ss.Overlay))
+				utils.LogInfo("  scene %d: %d overlay items (from frontend)", i+1, len(ss.Overlay))
+			} else if params.VideoRequirement != "" {
+				// 前端没传 overlay，用 LLM 兜底生成
+				scenes[i].Overlay = llm.AutoGenerateOverlay(ss.Narration, params.VideoRequirement)
+				if len(scenes[i].Overlay) > 0 {
+					utils.LogInfo("  scene %d: %d overlay items (auto-generated)", i+1, len(scenes[i].Overlay))
+				}
 			}
 			imagePrompts[i] = ss.ImagePrompt
 			scriptParts[i] = ss.Narration
