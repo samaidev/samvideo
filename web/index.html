@@ -840,14 +840,23 @@ async function testLLM(){
 
 async function testImage(){
   const el=document.getElementById('image_test_result');el.style.display='block';el.className='config-test-result';el.textContent='测试中...';
-  try{const r=await fetch(API+'/config/test-image',{method:'POST'});const d=await r.json();
+  try{const r=await fetch(API+'/config/test-image',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    base_url:document.getElementById('cfg_image_base_url').value,
+    model:document.getElementById('cfg_image_model').value,
+    api_key:document.getElementById('cfg_image_api_key').value,
+    size:document.getElementById('cfg_image_size').value
+  })});const d=await r.json();
     if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
     else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
   }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
 
 async function testVideo(){
   const el=document.getElementById('video_test_result');el.style.display='block';el.className='config-test-result';el.textContent='测试中...';
-  try{const r=await fetch(API+'/config/test-video',{method:'POST'});const d=await r.json();
+  try{const r=await fetch(API+'/config/test-video',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+    base_url:document.getElementById('cfg_video_api_base_url').value,
+    model:document.getElementById('cfg_video_model').value,
+    api_key:document.getElementById('cfg_video_api_key').value
+  })});const d=await r.json();
     if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
     else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
   }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
