@@ -57,6 +57,10 @@ func GenerateImagesFromPrompts(prompts []string, taskDir string, cfg *config.Con
 			}
 			if genErr != nil {
 				utils.LogWarn("image generation attempt %d failed: %v", retry+1, genErr)
+				// 认证错误立即终止，不再重试
+				if strings.Contains(genErr.Error(), "auth failed") {
+					return nil, genErr
+				}
 			} else if !isValidPNG(imageData) {
 				utils.LogWarn("image generation attempt %d: invalid PNG data (%d bytes), retrying", retry+1, len(imageData))
 			}
@@ -162,7 +166,7 @@ func generateOneImage(baseURL, apiKey, model, size, prompt string) ([]byte, erro
 	}
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+apiKey)
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 30 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("HTTP request: %w", err)
@@ -170,6 +174,9 @@ func generateOneImage(baseURL, apiKey, model, size, prompt string) ([]byte, erro
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			return nil, fmt.Errorf("image API auth failed (%d): %s", resp.StatusCode, string(body))
+		}
 		return nil, fmt.Errorf("image API returned %d: %s", resp.StatusCode, string(body))
 	}
 	var result struct {
@@ -371,6 +378,10 @@ func GenerateImageForScene(prompt string, taskDir string, index int, cfg *config
 		imageData, genErr := generateOneImage(baseURL, apiKey, model, size, prompt)
 		if genErr != nil {
 			utils.LogWarn("image gen attempt %d/%d for scene %d failed: %v", retry+1, maxRetries, index+1, genErr)
+			// 认证错误立即终止
+			if strings.Contains(genErr.Error(), "auth failed") {
+				return "", genErr
+			}
 			time.Sleep(2 * time.Second)
 			continue
 		}

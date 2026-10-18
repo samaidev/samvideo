@@ -77,6 +77,8 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/config", s.getConfig)
 		v1.PUT("/config", s.updateConfig)
 		v1.POST("/config/test", s.testLLM)
+	v1.POST("/config/test-image", s.testImageAPI)
+	v1.POST("/config/test-video", s.testVideoAPI)
 	}
 }
 
@@ -686,6 +688,98 @@ func (s *Server) testLLM(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"ok": true, "reply": reply, "model": cfg.OpenAI.ModelName})
+}
+
+func (s *Server) testImageAPI(c *gin.Context) {
+	cfg := s.cfg
+	baseURL := cfg.OpenAIImageBaseURL
+	apiKey := ""
+	if len(cfg.OpenAIImageAPIKeys) > 0 {
+		apiKey = cfg.OpenAIImageAPIKeys[0]
+	}
+	model := cfg.OpenAIImageModel
+	size := cfg.OpenAIImageSize
+	if size == "" {
+		size = "1280x720"
+	}
+	if baseURL == "" || apiKey == "" || model == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "文生图API未配置: base_url/api_key/model"})
+		return
+	}
+	url := strings.TrimSuffix(baseURL, "/") + "/images/generations"
+	url = strings.ReplaceAll(url, "//v1", "/v1")
+	url = strings.ReplaceAll(url, "//images", "/images")
+	reqBody := map[string]interface{}{
+		"model":           model,
+		"prompt":          "a simple blue circle on white background",
+		"n":               1,
+		"size":            size,
+		"response_format": "b64_json",
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "创建请求失败: " + err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "请求失败: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "model": model, "message": "文生图连接成功"})
+}
+
+func (s *Server) testVideoAPI(c *gin.Context) {
+	cfg := s.cfg
+	baseURL := cfg.VideoAPIBaseURL
+	apiKey := ""
+	if len(cfg.VideoAPIKeys) > 0 {
+		apiKey = cfg.VideoAPIKeys[0]
+	}
+	model := cfg.VideoModel
+	if baseURL == "" || apiKey == "" || model == "" {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "视频API未配置: base_url/api_key/model"})
+		return
+	}
+	url := strings.TrimSuffix(baseURL, "/") + "/videos/generations"
+	url = strings.ReplaceAll(url, "//v1", "/v1")
+	url = strings.ReplaceAll(url, "//videos", "/videos")
+	reqBody := map[string]interface{}{
+		"model":  model,
+		"prompt": "a calm ocean wave",
+		"n":      1,
+	}
+	bodyJSON, _ := json.Marshal(reqBody)
+	req, err := http.NewRequest("POST", url, strings.NewReader(string(bodyJSON)))
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "创建请求失败: " + err.Error()})
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+apiKey)
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "请求失败: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != 200 && resp.StatusCode != 202 {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(body))})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"ok": true, "model": model, "message": "视频API连接成功"})
 }
 
 func (s *Server) saveConfigToFile(cfg *config.Config) {
