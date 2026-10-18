@@ -639,6 +639,8 @@ func (s *Server) testLLM(c *gin.Context) {
 
 	// 简单测试：发送一个 hello 请求
 	url := strings.TrimSuffix(cfg.OpenAI.BaseURL, "/") + "/chat/completions"
+	url = strings.ReplaceAll(url, "//v1", "/v1")
+	url = strings.ReplaceAll(url, "//chat", "/chat")
 	reqBody := map[string]interface{}{
 		"model": cfg.OpenAI.ModelName,
 		"messages": []map[string]string{
