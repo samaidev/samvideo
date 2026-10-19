@@ -369,6 +369,42 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	if p.isCancelled(taskID) {
 		return nil, fmt.Errorf("任务已取消")
 	}
+	// Step 4.5: 后期制作——为每张图片生成并叠加 overlay
+	if params.VideoRequirement != "" {
+		utils.LogInfo("step 4.5: post-production overlay generation...")
+		for i, imgPath := range imgPaths {
+			sceneIdx := i
+			if sceneIdx >= len(scenes) {
+				sceneIdx = len(scenes) - 1
+			}
+			narration := scenes[sceneIdx].Narration
+			overlayItems, err := llm.GenerateOverlayForScene(narration, params.VideoRequirement, i, p.cfg)
+			if err != nil {
+				utils.LogWarn("overlay generation failed for scene %d: %v, using auto fallback", i+1, err)
+				overlayItems = llm.AutoGenerateOverlay(narration, params.VideoRequirement)
+			}
+			if len(overlayItems) == 0 {
+				continue
+			}
+			overlayedPath := imgPath + ".overlay.png"
+			voItems := make([]video.OverlayItem, len(overlayItems))
+			for j, oi := range overlayItems {
+				voItems[j] = video.OverlayItem{
+					Text:     oi.Text,
+					Position: oi.Position,
+					Color:    oi.Color,
+					Style:    oi.Style,
+				}
+			}
+			if err := video.ApplyOverlayToImage(imgPath, overlayedPath, voItems); err != nil {
+				utils.LogWarn("overlay image failed for scene %d: %v, using original", i+1, err)
+			} else {
+				imgPaths[i] = overlayedPath
+				utils.LogInfo("  scene %d: overlay applied (%d items)", i+1, len(overlayItems))
+			}
+		}
+	}
+
 	// Step 5: 图片转视频片段——每段时长=对应语音时长
 	utils.LogInfo("step 5: converting images to video clips with aligned durations...")
 	var clipPaths []string

@@ -598,6 +598,23 @@ func ConcatenateAudioFiles(audioPaths []string, outputPath string) error {
 	return nil
 }
 
+// ApplyOverlayToImage 用 Python PIL 直接在 PNG 图片上叠加 overlay（后期制作）
+func ApplyOverlayToImage(imagePath, outputPath string, overlayItems []OverlayItem) error {
+	if len(overlayItems) == 0 {
+		return nil
+	}
+	overlayJSON, _ := json.Marshal(overlayItems)
+	scriptPath := "scripts/overlay_image.py"
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "python3", scriptPath, imagePath, outputPath, string(overlayJSON))
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("PIL overlay: %w, output: %s", err, string(out))
+	}
+	return nil
+}
+
 // ApplyOverlay 在视频片段上叠加半透明遮罩层、高亮文字、箭头等
 // 使用 Python PIL 在图片上画 overlay，然后重新生成视频片段
 func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) error {
@@ -663,10 +680,10 @@ func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) erro
 
 // OverlayItem 叠加层元素（video 包用）
 type OverlayItem struct {
-	Text     string
-	Position string
-	Color    string
-	Style    string
+	Text     string `json:"text"`
+	Position string `json:"position"`
+	Color    string `json:"color"`
+	Style    string `json:"style"`
 }
 
 

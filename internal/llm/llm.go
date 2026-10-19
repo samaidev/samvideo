@@ -48,46 +48,25 @@ func GenerateScriptWithScenes(subject, scriptPrompt, requirement string, sceneCo
 请根据主题"%s"创作一个%d个分镜的短视频脚本。
 
 【核心要求】
-1. 每个分镜包含三个字段：narration（旁白）、image_prompt（画面描述）、overlay（叠加层）
+1. 每个分镜包含两个字段：narration（旁白）和 image_prompt（画面描述）
 2. narration：中文旁白，口语化，适合语音朗读，每段约30-50字
 3. image_prompt：英文画面描述，必须与旁白内容直接相关
-4. overlay：数组，每个元素描述一个叠加在画面上的视觉元素。必须为每个分镜生成overlay！
-
-【overlay字段说明】
-- text：要显示的中文文字（关键数据、标签、名称等）
-- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
-- color：颜色，可选值：red/green/white/yellow
-- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
+4. image_prompt 要具体有画面感，描述旁白中提到的场景、人物、物体或概念
+5. 所有分镜的旁白连起来是一段完整的解说
+6. 不要包含任何标记符号（如#、*等）
+7. image_prompt 只描述纯画面场景，不要在画面中包含任何文字、数字、标签、数据面板等UI元素
 
 【示例】
-主题"A股四季度展望"的分镜1：
-{
-  "narration": "四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。",
-  "image_prompt": "stock market trading floor with large screens showing slight dips, worried investors, cinematic",
-  "overlay": [
-    {"text": "四季度市场展望", "position": "top", "color": "yellow", "style": "highlight"},
-    {"text": "市场情绪谨慎", "position": "bottom", "color": "white", "style": "box"}
-  ]
-}
-
 主题"人工智能改变生活"的分镜1：
 {
   "narration": "从清晨的闹钟到深夜的推荐算法，AI已经无处不在。",
-  "image_prompt": "smart home morning scene, AI assistant on nightstand, warm sunlight, modern bedroom",
-  "overlay": [
-    {"text": "AI无处不在", "position": "center", "color": "white", "style": "highlight"}
-  ]
+  "image_prompt": "smart home morning scene, AI assistant on nightstand, warm sunlight, modern bedroom, photorealistic"
 }
 
 请以JSON格式返回：
-{"scenes": [{"narration": "...", "image_prompt": "...", "overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}]}
+{"scenes": [{"narration": "旁白文字", "image_prompt": "英文画面描述"}]}`, scriptPrompt, subject, sceneCount)
 
-注意：overlay 数组不能为 null，至少包含一个元素。如果画面确实不需要叠加，返回空数组 []。`, scriptPrompt, subject, sceneCount)
-
-	if requirement != "" {
-		prompt += "\n\n【视频制作要求】\n" + requirement
-		prompt += "\n\n你必须根据上述要求，为每个分镜的 overlay 数组生成具体的叠加内容。例如要求提到'涨用红色跌用绿色'，则涉及涨跌数据的分镜 overlay 里 color 用 red 或 green。"
-	}
+	// 注意：requirement 不传给脚本生成 LLM，留给后期制作步骤
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
@@ -397,4 +376,63 @@ func AutoGenerateOverlay(narration, requirement string) []OverlayItem {
 	}
 
 	return items
+}
+
+
+// GenerateOverlayForScene 后期制作步骤：根据旁白和视频制作要求，为单个分镜生成 overlay 叠加层信息
+// 这个函数在图片生成之后调用，overlay 作为独立后期层叠加到干净图片上
+func GenerateOverlayForScene(narration, requirement string, sceneIndex int, cfg *config.Config) ([]OverlayItem, error) {
+	if requirement == "" {
+		return nil, nil
+	}
+
+	prompt := fmt.Sprintf(`你是一个视频后期制作师。现在有一段视频分镜，你需要为它设计叠加层（overlay）。
+
+【分镜旁白】
+%s
+
+【视频制作要求】
+%s
+
+【你的任务】
+根据旁白内容和制作要求，为这个分镜设计1-3个叠加层元素。叠加层是在画面上后期合成的半透明遮罩层、高亮文字、箭头标注等。
+
+【overlay字段说明】
+- text：要显示的中文文字（从旁白中提取关键数据、名称、标签等）
+- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
+- color：颜色，可选值：red/green/white/yellow
+- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
+
+【示例】
+旁白"四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。"
+要求"涨用红色跌用绿色标注"
+overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","style":"highlight"},{"text":"市场情绪谨慎","position":"bottom","color":"white","style":"box"}]
+
+请以JSON格式返回：
+{"overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}
+
+注意：只返回JSON，不要其他文字。`, narration, requirement)
+
+	resp, err := callLLM(prompt, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("overlay LLM call failed: %w", err)
+	}
+
+	resp = cleanJSONResponse(resp)
+
+	var result struct {
+		Overlay []OverlayItem `json:"overlay"`
+	}
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		utils.LogWarn("failed to parse overlay JSON for scene %d: %v, using auto fallback", sceneIndex+1, err)
+		return AutoGenerateOverlay(narration, requirement), nil
+	}
+
+	if len(result.Overlay) == 0 {
+		utils.LogInfo("LLM returned empty overlay for scene %d, using auto fallback", sceneIndex+1)
+		return AutoGenerateOverlay(narration, requirement), nil
+	}
+
+	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(result.Overlay), sceneIndex+1)
+	return result.Overlay, nil
 }
