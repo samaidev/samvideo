@@ -164,8 +164,8 @@ select{cursor:pointer}
     <div class="tab" id="main-tab-tasks" onclick="switchTab('tasks')">任务历史</div>
     <div class="tab" id="main-tab-anchors" onclick="switchTab('anchors')">数字主播</div>
     <div class="tab" id="main-tab-materials" onclick="switchTab('materials')">素材库</div>
-    <div class="tab" id="main-tab-config" onclick="switchTab('config')">LLM配置</div>
     <div class="tab" id="main-tab-clone" onclick="switchTab('clone')">🎬 复刻</div>
+    <div class="tab" id="main-tab-config" onclick="switchTab('config')">LLM配置</div>
   </div>
 
   <!-- Create Tab -->
@@ -329,6 +329,41 @@ select{cursor:pointer}
   </div>
 
   <!-- Config Tab -->
+  <div id="tab-clone" style="display:none">
+    <div class="card">
+      <h3>🎬 视频复刻</h3>
+      <p style="color:var(--text-secondary);margin-bottom:1rem">粘贴视频链接（支持 TikTok / YouTube / Bilibili / 抖音等），AI 会下载原视频、转录音频、改写脚本，然后用全新素材重新生成视频。</p>
+      <div class="form-group">
+        <label>视频链接</label>
+        <input type="text" id="clone_video_url" placeholder="https://www.youtube.com/watch?v=xxx 或 https://www.tiktok.com/@user/video/xxx">
+      </div>
+      <div class="form-group">
+        <label>视频制作要求（可选）</label>
+        <textarea id="clone_requirement" rows="3" placeholder="例如：关键画面涉及股价数据时用红色高亮，政策名称用标签框"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="clone_btn" onclick="startClone()">🔄 开始复刻</button>
+      </div>
+      <div id="clone_status" style="display:none"></div>
+    </div>
+    <div id="clone_result" style="display:none">
+      <div class="card" style="margin-top:1rem">
+        <h3>📝 复刻结果</h3>
+        <div class="form-group">
+          <label>原视频转录文本</label>
+          <textarea id="clone_transcript" rows="4" readonly style="background:var(--bg-card)"></textarea>
+        </div>
+        <div class="form-group">
+          <label>AI 生成的脚本（可编辑）</label>
+          <textarea id="clone_script" rows="8" placeholder="脚本生成后可在此编辑"></textarea>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-primary" onclick="useCloneResult()">📹 用此脚本生成视频</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <div id="tab-config" style="display:none">
     <div class="config-card">
       <h3>🤖 LLM 大模型配置</h3>
@@ -900,40 +935,5 @@ function useCloneResult(){
   }
 }
 </script>
-  <div id="tab-clone" style="display:none">
-    <div class="card">
-      <h3>🎬 视频复刻</h3>
-      <p style="color:var(--text-secondary);margin-bottom:1rem">粘贴视频链接（支持 TikTok / YouTube / Bilibili / 抖音等），AI 会下载原视频、转录音频、改写脚本，然后用全新素材重新生成视频。</p>
-      <div class="form-group">
-        <label>视频链接</label>
-        <input type="text" id="clone_video_url" placeholder="https://www.youtube.com/watch?v=xxx 或 https://www.tiktok.com/@user/video/xxx">
-      </div>
-      <div class="form-group">
-        <label>视频制作要求（可选）</label>
-        <textarea id="clone_requirement" rows="3" placeholder="例如：关键画面涉及股价数据时用红色高亮，政策名称用标签框"></textarea>
-      </div>
-      <div class="btn-row">
-        <button class="btn btn-primary" id="clone_btn" onclick="startClone()">🔄 开始复刻</button>
-      </div>
-      <div id="clone_status" style="display:none"></div>
-    </div>
-    <div id="clone_result" style="display:none">
-      <div class="card" style="margin-top:1rem">
-        <h3>📝 复刻结果</h3>
-        <div class="form-group">
-          <label>原视频转录文本</label>
-          <textarea id="clone_transcript" rows="4" readonly style="background:var(--bg-card)"></textarea>
-        </div>
-        <div class="form-group">
-          <label>AI 生成的脚本（可编辑）</label>
-          <textarea id="clone_script" rows="8" placeholder="脚本生成后可在此编辑"></textarea>
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-primary" onclick="useCloneResult()">📹 用此脚本生成视频</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
 </body>
 </html>
