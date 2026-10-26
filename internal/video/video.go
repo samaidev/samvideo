@@ -607,7 +607,7 @@ func ApplyOverlayToImage(imagePath, outputPath string, overlayItems []OverlayIte
 	scriptPath := "scripts/overlay_image.py"
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "python3", scriptPath, imagePath, outputPath, string(overlayJSON))
+	cmd := exec.CommandContext(ctx, "python3.14", scriptPath, imagePath, outputPath, string(overlayJSON))
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("PIL overlay: %w, output: %s", err, string(out))
@@ -646,7 +646,7 @@ func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) erro
 	}
 	pilCtx, pilCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer pilCancel()
-	pilCmd := exec.CommandContext(pilCtx, "python3", scriptPath, tmpFrame, overlayedFrame, string(overlayJSON))
+	pilCmd := exec.CommandContext(pilCtx, "python3.14", scriptPath, tmpFrame, overlayedFrame, string(overlayJSON))
 	if out, err := pilCmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("PIL overlay: %w, output: %s", err, string(out))
 	}

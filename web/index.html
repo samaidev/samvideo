@@ -860,6 +860,43 @@ async function testVideo(){
     if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
     else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
   }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
+async function startClone(){
+  const url=document.getElementById('clone_video_url').value.trim();
+  if(!url){showToast('请输入视频链接','error');return}
+  const req=document.getElementById('clone_requirement').value.trim();
+  const btn=document.getElementById('clone_btn');
+  const status=document.getElementById('clone_status');
+  btn.disabled=true;btn.textContent='⏳ 复刻中...';
+  status.style.display='block';status.className='config-test-result';status.textContent='正在下载视频并转录...';
+  try{
+    const r=await fetch(API+'/clone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_url:url,requirement:req})});
+    const d=await r.json();
+    if(d.ok){
+      status.className='config-test-result ok';status.textContent='✅ 复刻成功！';
+      document.getElementById('clone_result').style.display='block';
+      document.getElementById('clone_transcript').value=d.transcript||'';
+      document.getElementById('clone_script').value=d.script||'';
+      window.cloneScenes=d.scenes||null;
+      showToast('复刻成功！可以编辑脚本后生成视频','success');
+    }else{
+      status.className='config-test-result fail';status.textContent='❌ 复刻失败: '+(d.error||'');
+    }
+  }catch(e){status.className='config-test-result fail';status.textContent='❌ 网络错误: '+e.message}
+  btn.disabled=false;btn.textContent='🔄 开始复刻';
+}
+function useCloneResult(){
+  const script=document.getElementById('clone_script').value.trim();
+  if(!script){showToast('脚本为空','error');return}
+  // 切到生成Tab，填入脚本
+  switchTab('create');
+  document.getElementById('video_script').value=script;
+  if(window.cloneScenes){
+    window.savedScenes=window.cloneScenes;
+    showToast('脚本和分镜已填入，点击生成视频即可','success');
+  }else{
+    showToast('脚本已填入，点击生成视频即可','success');
+  }
+}
 </script>
 </body>
 </html>

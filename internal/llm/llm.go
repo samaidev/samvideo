@@ -207,6 +207,16 @@ func GenerateTerms(script string, cfg *config.Config) ([]string, error) {
 }
 
 // callLLM 调用 OpenAI 兼容的 LLM API
+// CallLLM 导出版本的 callLLM，供其他包调用
+func CallLLM(prompt string, cfg *config.Config) (string, error) {
+	return callLLM(prompt, cfg)
+}
+
+// CleanJSONResponse 导出版本，供其他包调用
+func CleanJSONResponse(resp string) string {
+	return cleanJSONResponse(resp)
+}
+
 func callLLM(prompt string, cfg *config.Config) (string, error) {
 	baseURL := cfg.OpenAI.BaseURL
 	apiKey := cfg.OpenAI.APIKey

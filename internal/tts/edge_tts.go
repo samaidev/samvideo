@@ -49,7 +49,7 @@ func Synthesize(text, voiceName string, rate float64, outputPath string, cfg *co
 	}
 
 	utils.LogInfo("calling edge-tts CLI...")
-	cmd := exec.Command("python3", args...)
+	cmd := exec.Command("python3.14", args...)
 	cmd.Env = append(os.Environ())
 	out, err := cmd.CombinedOutput()
 	if err != nil {
@@ -167,7 +167,7 @@ func SynthesizeScenes(scenes []SceneNarration, voiceName string, rate float64, t
 			"--write-subtitles", subPath,
 		}
 
-		cmd := exec.Command("python3", args...)
+		cmd := exec.Command("python3.14", args...)
 		cmd.Env = append(os.Environ())
 		out, err := cmd.CombinedOutput()
 		if err != nil {

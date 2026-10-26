@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"samvideo/internal/clone"
 	"samvideo/internal/config"
 	"samvideo/internal/llm"
 	"samvideo/internal/models"
@@ -47,6 +48,7 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/tasks/:task_id", s.getTask)
 		v1.DELETE("/tasks/:task_id", s.deleteTask)
 	v1.POST("/tasks/:task_id/cancel", s.cancelTask)
+	v1.POST("/clone", s.cloneVideo)
 		v1.GET("/download/:task_id/:filename", s.downloadFile)
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
 		v1.GET("/templates", s.listTemplates)
@@ -262,6 +264,45 @@ func (s *Server) deleteTask(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "deleted"})
+}
+
+func (s *Server) cloneVideo(c *gin.Context) {
+	var req struct {
+		VideoURL    string `json:"video_url"`
+		Requirement string `json:"requirement"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.VideoURL == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "video_url is required"})
+		return
+	}
+
+	// 创建工作目录
+	taskID := fmt.Sprintf("%d", time.Now().UnixNano())
+	workDir := filepath.Join("storage", "tasks", taskID)
+	if err := os.MkdirAll(workDir, 0755); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "create work dir failed"})
+		return
+	}
+
+	// 执行复刻：下载 → 转录 → LLM生成脚本
+	result, err := clone.CloneVideo(req.VideoURL, req.Requirement, workDir, s.cfg)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":           true,
+		"task_id":      taskID,
+		"transcript":   result.Transcript,
+		"script":       result.Script,
+		"scenes":       result.Scenes,
+		"image_prompts": result.ImagePrompts,
+	})
 }
 
 func (s *Server) cancelTask(c *gin.Context) {
