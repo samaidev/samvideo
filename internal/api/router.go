@@ -48,7 +48,8 @@ func (s *Server) SetupRoutes(r *gin.Engine) {
 		v1.GET("/tasks/:task_id", s.getTask)
 		v1.DELETE("/tasks/:task_id", s.deleteTask)
 	v1.POST("/tasks/:task_id/cancel", s.cancelTask)
-	v1.POST("/clone", s.cloneVideo)
+	v1.POST("/clone/analyze", s.cloneAnalyze)
+	v1.POST("/clone/rewrite", s.cloneRewrite)
 		v1.GET("/download/:task_id/:filename", s.downloadFile)
 		v1.GET("/stream/:task_id/:filename", s.streamFile)
 		v1.GET("/templates", s.listTemplates)
@@ -266,10 +267,10 @@ func (s *Server) deleteTask(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": 200, "message": "deleted"})
 }
 
-func (s *Server) cloneVideo(c *gin.Context) {
+// cloneAnalyze Step 1: 下载视频 → 转录音频 → 返回原视频脚本
+func (s *Server) cloneAnalyze(c *gin.Context) {
 	var req struct {
-		VideoURL    string `json:"video_url"`
-		Requirement string `json:"requirement"`
+		VideoURL string `json:"video_url"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -280,7 +281,6 @@ func (s *Server) cloneVideo(c *gin.Context) {
 		return
 	}
 
-	// 创建工作目录
 	taskID := fmt.Sprintf("%d", time.Now().UnixNano())
 	workDir := filepath.Join("storage", "tasks", taskID)
 	if err := os.MkdirAll(workDir, 0755); err != nil {
@@ -288,8 +288,55 @@ func (s *Server) cloneVideo(c *gin.Context) {
 		return
 	}
 
-	// 执行复刻：下载 → 转录 → LLM生成脚本
-	result, err := clone.CloneVideo(req.VideoURL, req.Requirement, workDir, s.cfg)
+	// Step 1: 下载视频
+	videoPath, err := clone.DownloadVideo(req.VideoURL, workDir)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "下载视频失败: " + err.Error()})
+		return
+	}
+
+	// Step 2: 提取音频
+	audioPath, err := clone.ExtractAudio(videoPath, workDir)
+	if err != nil {
+		c.JSON(http.StatusOK, gin.H{"ok": false, "error": "提取音频失败: " + err.Error()})
+		return
+	}
+
+	// Step 3: 转录音频
+	transcript, err := clone.TranscribeAudio(audioPath, s.cfg)
+	if err != nil {
+		utils.LogWarn("Whisper API 不可用，降级到 ffmpeg 关键帧分析: %v", err)
+		transcript, err = clone.TranscribeWithFFmpeg(videoPath, s.cfg)
+		if err != nil {
+			c.JSON(http.StatusOK, gin.H{"ok": false, "error": "音频转录失败: " + err.Error()})
+			return
+		}
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"ok":         true,
+		"task_id":    taskID,
+		"transcript": transcript,
+		"video_path": videoPath,
+	})
+}
+
+// cloneRewrite Step 2: 根据原视频转录文本，LLM 改写新脚本
+func (s *Server) cloneRewrite(c *gin.Context) {
+	var req struct {
+		Transcript  string `json:"transcript"`
+		Requirement string `json:"requirement"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	if req.Transcript == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "transcript is required"})
+		return
+	}
+
+	script, imagePrompts, scenes, err := clone.GenerateCloneScenes(req.Transcript, req.Requirement, s.cfg)
 	if err != nil {
 		c.JSON(http.StatusOK, gin.H{"ok": false, "error": err.Error()})
 		return
@@ -297,11 +344,9 @@ func (s *Server) cloneVideo(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"ok":           true,
-		"task_id":      taskID,
-		"transcript":   result.Transcript,
-		"script":       result.Script,
-		"scenes":       result.Scenes,
-		"image_prompts": result.ImagePrompts,
+		"script":       script,
+		"scenes":       scenes,
+		"image_prompts": imagePrompts,
 	})
 }
 

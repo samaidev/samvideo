@@ -330,36 +330,47 @@ select{cursor:pointer}
 
   <!-- Config Tab -->
   <div id="tab-clone" style="display:none">
-    <div class="card">
-      <h3>🎬 视频复刻</h3>
-      <p style="color:var(--text-secondary);margin-bottom:1rem">粘贴视频链接（支持 TikTok / YouTube / Bilibili / 抖音等），AI 会下载原视频、转录音频、改写脚本，然后用全新素材重新生成视频。</p>
+    <!-- Step 1: 分析 -->
+    <div class="card" id="clone_step1">
+      <h3>🎬 视频复刻 — Step 1: 分析原视频</h3>
+      <p style="color:var(--text-secondary);margin-bottom:1rem">粘贴视频链接（支持 TikTok / YouTube / Bilibili / 抖音等），AI 会下载原视频并转录音频内容。</p>
       <div class="form-group">
         <label>视频链接</label>
         <input type="text" id="clone_video_url" placeholder="https://www.youtube.com/watch?v=xxx 或 https://www.tiktok.com/@user/video/xxx">
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="clone_analyze_btn" onclick="cloneAnalyze()">🔍 分析原视频</button>
+      </div>
+      <div id="clone_analyze_status" style="display:none"></div>
+    </div>
+
+    <!-- Step 2: 复刻 -->
+    <div class="card" id="clone_step2" style="display:none;margin-top:1rem">
+      <h3>📝 Step 2: 复刻 — AI 改写新脚本</h3>
+      <div class="form-group">
+        <label>原视频转录文本</label>
+        <textarea id="clone_transcript" rows="5" readonly style="background:var(--bg-card)"></textarea>
       </div>
       <div class="form-group">
         <label>视频制作要求（可选）</label>
         <textarea id="clone_requirement" rows="3" placeholder="例如：关键画面涉及股价数据时用红色高亮，政策名称用标签框"></textarea>
       </div>
       <div class="btn-row">
-        <button class="btn btn-primary" id="clone_btn" onclick="startClone()">🔄 开始复刻</button>
+        <button class="btn btn-primary" id="clone_rewrite_btn" onclick="cloneRewrite()">🔄 AI 改写脚本</button>
       </div>
-      <div id="clone_status" style="display:none"></div>
+      <div id="clone_rewrite_status" style="display:none"></div>
     </div>
-    <div id="clone_result" style="display:none">
-      <div class="card" style="margin-top:1rem">
-        <h3>📝 复刻结果</h3>
-        <div class="form-group">
-          <label>原视频转录文本</label>
-          <textarea id="clone_transcript" rows="4" readonly style="background:var(--bg-card)"></textarea>
-        </div>
-        <div class="form-group">
-          <label>AI 生成的脚本（可编辑）</label>
-          <textarea id="clone_script" rows="8" placeholder="脚本生成后可在此编辑"></textarea>
-        </div>
-        <div class="btn-row">
-          <button class="btn btn-primary" onclick="useCloneResult()">📹 用此脚本生成视频</button>
-        </div>
+
+    <!-- Step 3: 制作视频 -->
+    <div class="card" id="clone_step3" style="display:none;margin-top:1rem">
+      <h3>📹 Step 3: 制作视频</h3>
+      <div class="form-group">
+        <label>AI 生成的新脚本（可编辑）</label>
+        <textarea id="clone_script" rows="10" placeholder="脚本生成后可在此编辑"></textarea>
+      </div>
+      <div class="btn-row">
+        <button class="btn btn-primary" onclick="useCloneResult()">📹 用此脚本生成视频</button>
+        <button class="btn btn-secondary" onclick="cloneReset()">↩️ 重新开始</button>
       </div>
     </div>
   </div>
@@ -897,42 +908,78 @@ async function testVideo(){
     if(d.ok){el.className='config-test-result ok';el.textContent='✅ 连接成功！模型: '+d.model}
     else{el.className='config-test-result fail';el.textContent='❌ 连接失败: '+d.error}
   }catch(e){el.className='config-test-result fail';el.textContent='❌ 网络错误: '+e.message}}
-async function startClone(){
+// Step 1: 分析原视频
+async function cloneAnalyze(){
   const url=document.getElementById('clone_video_url').value.trim();
   if(!url){showToast('请输入视频链接','error');return}
-  const req=document.getElementById('clone_requirement').value.trim();
-  const btn=document.getElementById('clone_btn');
-  const status=document.getElementById('clone_status');
-  btn.disabled=true;btn.textContent='⏳ 复刻中...';
-  status.style.display='block';status.className='config-test-result';status.textContent='正在下载视频并转录...';
+  const btn=document.getElementById('clone_analyze_btn');
+  const status=document.getElementById('clone_analyze_status');
+  btn.disabled=true;btn.textContent='⏳ 分析中...';
+  status.style.display='block';status.className='config-test-result';status.textContent='正在下载视频并转录音频...';
   try{
-    const r=await fetch(API+'/clone',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_url:url,requirement:req})});
+    const r=await fetch(API+'/clone/analyze',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({video_url:url})});
     const d=await r.json();
     if(d.ok){
-      status.className='config-test-result ok';status.textContent='✅ 复刻成功！';
-      document.getElementById('clone_result').style.display='block';
+      status.className='config-test-result ok';status.textContent='✅ 分析完成！';
       document.getElementById('clone_transcript').value=d.transcript||'';
-      document.getElementById('clone_script').value=d.script||'';
-      window.cloneScenes=d.scenes||null;
-      showToast('复刻成功！可以编辑脚本后生成视频','success');
+      document.getElementById('clone_step2').style.display='block';
+      document.getElementById('clone_step2').scrollIntoView({behavior:'smooth'});
+      showToast('分析完成，请继续复刻','success');
     }else{
-      status.className='config-test-result fail';status.textContent='❌ 复刻失败: '+(d.error||'');
+      status.className='config-test-result fail';status.textContent='❌ 分析失败: '+(d.error||'');
     }
   }catch(e){status.className='config-test-result fail';status.textContent='❌ 网络错误: '+e.message}
-  btn.disabled=false;btn.textContent='🔄 开始复刻';
+  btn.disabled=false;btn.textContent='🔍 分析原视频';
 }
+
+// Step 2: AI 改写脚本
+async function cloneRewrite(){
+  const transcript=document.getElementById('clone_transcript').value.trim();
+  if(!transcript){showToast('转录文本为空','error');return}
+  const req=document.getElementById('clone_requirement').value.trim();
+  const btn=document.getElementById('clone_rewrite_btn');
+  const status=document.getElementById('clone_rewrite_status');
+  btn.disabled=true;btn.textContent='⏳ AI 改写中...';
+  status.style.display='block';status.className='config-test-result';status.textContent='AI 正在改写脚本...';
+  try{
+    const r=await fetch(API+'/clone/rewrite',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({transcript:transcript,requirement:req})});
+    const d=await r.json();
+    if(d.ok){
+      status.className='config-test-result ok';status.textContent='✅ 脚本生成完成！';
+      document.getElementById('clone_script').value=d.script||'';
+      window.cloneScenes=d.scenes||null;
+      document.getElementById('clone_step3').style.display='block';
+      document.getElementById('clone_step3').scrollIntoView({behavior:'smooth'});
+      showToast('脚本已生成，可编辑后制作视频','success');
+    }else{
+      status.className='config-test-result fail';status.textContent='❌ 改写失败: '+(d.error||'');
+    }
+  }catch(e){status.className='config-test-result fail';status.textContent='❌ 网络错误: '+e.message}
+  btn.disabled=false;btn.textContent='🔄 AI 改写脚本';
+}
+
+// Step 3: 用脚本生成视频
 function useCloneResult(){
   const script=document.getElementById('clone_script').value.trim();
   if(!script){showToast('脚本为空','error');return}
-  // 切到生成Tab，填入脚本
   switchTab('create');
   document.getElementById('video_script').value=script;
-  if(window.cloneScenes){
-    window.savedScenes=window.cloneScenes;
-    showToast('脚本和分镜已填入，点击生成视频即可','success');
-  }else{
-    showToast('脚本已填入，点击生成视频即可','success');
-  }
+  if(window.cloneScenes){window.savedScenes=window.cloneScenes}
+  showToast('脚本已填入，点击生成视频即可','success');
+}
+
+// 重置复刻流程
+function cloneReset(){
+  document.getElementById('clone_step2').style.display='none';
+  document.getElementById('clone_step3').style.display='none';
+  document.getElementById('clone_analyze_status').style.display='none';
+  document.getElementById('clone_rewrite_status').style.display='none';
+  document.getElementById('clone_video_url').value='';
+  document.getElementById('clone_transcript').value='';
+  document.getElementById('clone_requirement').value='';
+  document.getElementById('clone_script').value='';
+  window.cloneScenes=null;
+  document.getElementById('clone_step1').scrollIntoView({behavior:'smooth'});
 }
 </script>
 </body>
