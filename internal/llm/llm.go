@@ -446,3 +446,83 @@ overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","sty
 	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(result.Overlay), sceneIndex+1)
 	return result.Overlay, nil
 }
+
+
+// SplitScriptToScenes 用 LLM 把长文章改写成多个分镜
+func SplitScriptToScenes(script, requirement string, cfg *config.Config) ([]Scene, error) {
+	now := time.Now().Format("2006-01-02 15:04 Monday")
+
+	// 截取前3000字避免 prompt 过长
+	scriptText := script
+	if len([]rune(scriptText)) > 3000 {
+		scriptText = string([]rune(scriptText)[:3000])
+	}
+
+	prompt := fmt.Sprintf(`你是一个专业的短视频脚本撰写人。
+
+当前时间：%s
+
+请将以下文章改写成一个6到8个分镜的短视频脚本。保持文章的核心内容和观点，但用口语化的旁白重新表达，每个分镜旁白约30-50字。
+
+【原始文章】
+%s
+
+【核心要求】
+1. 每个分镜包含三个字段：narration（旁白）、image_prompt（画面描述）、overlay（叠加层）
+2. narration：中文旁白，口语化，适合语音朗读，每段约30-50字
+3. image_prompt：英文画面描述，必须与旁白内容直接相关
+4. overlay：数组，每个元素描述一个叠加在画面上的视觉元素
+
+【overlay字段说明】
+- text：要显示的中文文字（关键数据、标签、名称等）
+- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
+- color：颜色，可选值：red/green/white/yellow
+- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
+
+【示例】
+{
+  "narration": "四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。",
+  "image_prompt": "stock market trading floor with large screens showing slight dips, worried investors, cinematic",
+  "overlay": [
+    {"text": "四季度市场展望", "position": "top", "color": "yellow", "style": "highlight"},
+    {"text": "市场情绪谨慎", "position": "bottom", "color": "white", "style": "box"}
+  ]
+}
+
+请以JSON格式返回：
+{"scenes": [{"narration": "...", "image_prompt": "...", "overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}]}
+
+注意：overlay 数组不能为 null，至少包含一个元素。`, now, scriptText)
+
+	if requirement != "" {
+		prompt += "\n\n【视频制作要求】\n" + requirement
+	}
+
+	resp, err := CallLLM(prompt, cfg)
+	if err != nil {
+		return nil, fmt.Errorf("LLM 调用失败: %w", err)
+	}
+
+	resp = CleanJSONResponse(resp)
+
+	var result struct {
+		Scenes []Scene `json:"scenes"`
+	}
+	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+		return nil, fmt.Errorf("解析 LLM 响应失败: %w", err)
+	}
+
+	if len(result.Scenes) == 0 {
+		return nil, fmt.Errorf("LLM 未生成有效的分镜数据")
+	}
+
+	// 兜底：如果 LLM 没生成 overlay，自动生成
+	for i := range result.Scenes {
+		if len(result.Scenes[i].Overlay) == 0 {
+			result.Scenes[i].Overlay = AutoGenerateOverlay(result.Scenes[i].Narration, requirement)
+		}
+	}
+
+	utils.LogInfo("LLM split script into %d scenes", len(result.Scenes))
+	return result.Scenes, nil
+}
