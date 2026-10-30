@@ -631,6 +631,19 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 		return script2, terms2, nil, nil
 	}
 
+	// 如果 scenes 为空但 script 很长，自动按段落切分成分镜
+	if len(scenes) == 0 && len(script) > 500 {
+		utils.LogInfo("scenes is empty but script is long (%d chars), auto-splitting into scenes...", len(script))
+		scenes = autoSplitScriptToScenes(script, params.VideoRequirement)
+		if len(scenes) > 0 {
+			imagePrompts = make([]string, len(scenes))
+			for i, s := range scenes {
+				imagePrompts[i] = s.ImagePrompt
+			}
+			utils.LogInfo("auto-split into %d scenes", len(scenes))
+		}
+	}
+
 	// 如果分镜模式返回了 scenes，用 scene 的 image_prompt 作为图片生成提示词
 	if len(scenes) > 0 {
 		utils.LogInfo("scene-based script: %d scenes, %d image prompts", len(scenes), len(imagePrompts))
@@ -1059,4 +1072,48 @@ func DeleteTask(cfg *config.Config, taskID string) error {
 
 func generateTaskID() string {
 	return fmt.Sprintf("%d", time.Now().UnixNano())
+}
+
+
+// autoSplitScriptToScenes 把长文章自动按段落切分成多个分镜
+func autoSplitScriptToScenes(script, requirement string) []llm.Scene {
+	// 按换行符分段
+	paragraphs := strings.Split(script, "\n")
+	var validParagraphs []string
+	for _, para := range paragraphs {
+		para = strings.TrimSpace(para)
+		// 跳过空行、标题行（以#开头）、过短的行
+		if len(para) < 20 || strings.HasPrefix(para, "#") || strings.HasPrefix(para, "##") {
+			continue
+		}
+		// 去掉 markdown 标记
+		para = strings.ReplaceAll(para, "**", "")
+		para = strings.ReplaceAll(para, "*", "")
+		validParagraphs = append(validParagraphs, para)
+	}
+
+	if len(validParagraphs) == 0 {
+		return nil
+	}
+
+	// 限制最多 8 个分镜
+	if len(validParagraphs) > 8 {
+		validParagraphs = validParagraphs[:8]
+	}
+
+	scenes := make([]llm.Scene, len(validParagraphs))
+	for i, para := range validParagraphs {
+		// 截取前50字作为旁白（避免单段过长）
+		narration := para
+		if len([]rune(narration)) > 60 {
+			narration = string([]rune(narration)[:60])
+		}
+		scenes[i] = llm.Scene{
+			Narration:   narration,
+			ImagePrompt: "abstract financial concept illustration, data visualization, modern infographic style, cinematic lighting",
+		}
+		// 自动生成 overlay
+		scenes[i].Overlay = llm.AutoGenerateOverlay(narration, requirement)
+	}
+	return scenes
 }
