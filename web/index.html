@@ -669,10 +669,17 @@ async function stopVideo(){
   document.getElementById('current_status').textContent='已取消';
   document.getElementById('current_status').style.color='var(--accent)';
 }
+let lastProgress=-1,lastProgressTime=0;
 function pollTask(tid){
   currentTaskId=tid;
   if(pollTimer)clearInterval(pollTimer);
   pollTimer=setInterval(async()=>{try{const r=await fetch(API+'/tasks/'+tid);const d=await r.json();const t=d.data;if(!t)return;
+  // 检测进度卡死
+  const prog=t.progress||0;
+  if(prog!==lastProgress){lastProgress=prog;lastProgressTime=Date.now()}
+  else if(Date.now()-lastProgressTime>90000 && prog<100 && t.state===1){
+    showToast('⚠️ 进度已停滞90秒，可能处理超长内容卡住','error');
+  }
     document.getElementById('current_progress').textContent=(t.progress||0)+'%';document.getElementById('current_progress_bar').style.width=(t.progress||0)+'%';
     const sm={1:'完成','-1':'失败',4:'处理中'},cm={1:'var(--green)','-1':'var(--accent)',4:'var(--blue)'};
     const se=document.getElementById('current_status');se.textContent=sm[t.state]||'处理中';se.style.color=cm[t.state]||'var(--blue)';
