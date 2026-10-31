@@ -348,15 +348,35 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	}
 	// Step 4: 逐段生成图片——用 scene 的 image_prompt 生成图片
 	utils.LogInfo("step 4: generating images for each scene...")
-	var imgPaths []string
+	imgPaths := make([]string, len(scenes))
+	lastSuccessImg := ""
 	for i, scene := range scenes {
+		if i > 0 {
+			time.Sleep(2 * time.Second) // 图片请求间隔，减少 API 502
+		}
 		imgPath, err := material.GenerateImageForScene(scene.ImagePrompt, taskDir, i, p.cfg)
 		if err != nil {
-			utils.LogWarn("failed to generate image for scene %d: %v, skipping", i+1, err)
-			continue
+			utils.LogWarn("failed to generate image for scene %d: %v, reusing last successful image", i+1, err)
+			if lastSuccessImg != "" {
+				// 复用上一张成功的图片
+				imgPaths[i] = lastSuccessImg
+			} else {
+				// 没有成功的图片，用占位图
+				imgPaths[i] = ""
+			}
+		} else {
+			imgPaths[i] = imgPath
+			lastSuccessImg = imgPath
 		}
-		imgPaths = append(imgPaths, imgPath)
 	}
+	// 过滤掉空路径
+	var validImgPaths []string
+	for _, p := range imgPaths {
+		if p != "" {
+			validImgPaths = append(validImgPaths, p)
+		}
+	}
+	imgPaths = validImgPaths
 	if len(imgPaths) == 0 {
 		result.State = models.TaskStateFailed
 		result.Error = "no images generated"
@@ -588,32 +608,35 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 			utils.LogInfo("LLM split user script into %d scenes", len(scenes))
 			return params.VideoScript, imagePrompts, scenes, nil
 		}
-		// LLM 分段失败，简单按字数切分成6段
-		utils.LogWarn("LLM split failed, doing simple split into 6 segments")
+		// LLM 分段失败，简单按字数切分（保留完整原文）
+		utils.LogWarn("LLM split failed, doing simple split preserving full script")
 		runes := []rune(params.VideoScript)
 		totalLen := len(runes)
-		segLen := totalLen / 6
-		if segLen < 20 {
-			segLen = 20
+		segLen := 250
+		segCount := (totalLen + segLen - 1) / segLen
+		if segCount > 20 {
+			segCount = 20
+			segLen = totalLen / segCount
 		}
-		scenes2 := make([]llm.Scene, 0, 6)
-		for i := 0; i < 6 && i*segLen < totalLen; i++ {
+		scenes2 := make([]llm.Scene, 0, segCount)
+		for i := 0; i < segCount && i*segLen < totalLen; i++ {
 			start := i * segLen
 			end := start + segLen
 			if end > totalLen {
 				end = totalLen
 			}
 			narration := string(runes[start:end])
-			// 去掉 markdown 标记
 			narration = strings.ReplaceAll(narration, "**", "")
+			narration = strings.ReplaceAll(narration, "##", "")
 			narration = strings.ReplaceAll(narration, "#", "")
+			narration = strings.ReplaceAll(narration, "\n", " ")
 			narration = strings.TrimSpace(narration)
 			if len(narration) < 10 {
 				continue
 			}
 			s := llm.Scene{
 				Narration:   narration,
-				ImagePrompt: "financial data visualization, stock market chart, modern infographic, cinematic",
+				ImagePrompt: llm.GenerateImagePromptFromNarration(narration),
 			}
 			s.Overlay = llm.AutoGenerateOverlay(narration, params.VideoRequirement)
 			scenes2 = append(scenes2, s)

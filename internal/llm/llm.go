@@ -448,57 +448,101 @@ overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","sty
 }
 
 
-// SplitScriptToScenes 用 LLM 把长文章改写成多个分镜
-func SplitScriptToScenes(script, requirement string, cfg *config.Config) ([]Scene, error) {
-	now := time.Now().Format("2006-01-02 15:04 Monday")
-
-	// 截取前3000字避免 prompt 过长
-	scriptText := script
-	if len([]rune(scriptText)) > 800 {
-		scriptText = string([]rune(scriptText)[:800])
+// GenerateImagePromptFromNarration 根据旁白内容提取关键词生成图片提示词
+// 不额外调用 LLM，直接从文本提取数字、金融术语等
+func GenerateImagePromptFromNarration(narration string) string {
+	// 提取数字和百分比
+	numbers := regexp.MustCompile(`\d+\.?\d*%?`).FindAllString(narration, 5)
+	// 提取金融关键词
+	keywords := []string{}
+	financialTerms := []string{"A股", "港股", "美股", "GDP", "CPI", "PPI", "PMI", "央行", "利率", "降息", "加息",
+		"通胀", "通缩", "牛市", "熊市", "涨停", "跌停", "新能源", "半导体", "芯片", "人工智能", "AI",
+		"消费", "投资", "出口", "进口", "贸易", "房地产", "基建", "科技", "医药", "金融", "银行",
+		"证券", "保险", "基金", "债券", "期货", "外汇", "汇率", "美元", "人民币", "欧元",
+		"石油", "黄金", "铜", "铁矿石", "煤炭", "电力", "军工", "航天", "5G", "6G",
+		"物联网", "云计算", "大数据", "区块链", "碳中和", "新能源车", "光伏", "风电", "储能",
+		"白酒", "食品", "零售", "旅游", "航空", "物流", "钢铁", "化工", "建材", "机械",
+		"汽车", "家电", "纺织", "农业", "养殖", "猪肉", "粮食", "大豆", "玉米",
+		"科创板", "创业板", "北交所", "沪深", "上证", "深证", "恒生", "纳斯达克", "道琼斯",
+		"M2", "社融", "财政", "税收", "专项债", "国债", "地方债", "赤字", "顺差", "逆差",
+		"PMI", "规模以上", "工业增加值", "固定资产投资", "社会消费品零售", "城镇调查失业率",
+		"高质量发展", "新质生产力", "专精特新", "数字经济", "平台经济", "共同富裕",
+		"一带一路", "REITs", "ETF", "LOF", "IPO", "定增", "回购", "分红", "并购",
 	}
-
-	prompt := fmt.Sprintf(`当前时间：%s
-
-请将以下文章改写成6个分镜的短视频脚本。每个分镜旁白约30-50字。
-
-文章：%s
-
-返回JSON：{"scenes":[{"narration":"中文旁白","image_prompt":"英文画面描述","overlay":[{"text":"中文标签","position":"top","color":"yellow","style":"highlight"}]}]}
-
-overlay的position可选：top/center/bottom/top-left/top-right/bottom-left/bottom-right
-overlay的color可选：red/green/white/yellow
-overlay的style可选：box/highlight/arrow`, now, scriptText)
-
-	if requirement != "" {
-		prompt += "\n\n【视频制作要求】\n" + requirement
-	}
-
-	resp, err := CallLLM(prompt, cfg)
-	if err != nil {
-		return nil, fmt.Errorf("LLM 调用失败: %w", err)
-	}
-
-	resp = CleanJSONResponse(resp)
-
-	var result struct {
-		Scenes []Scene `json:"scenes"`
-	}
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
-		return nil, fmt.Errorf("解析 LLM 响应失败: %w", err)
-	}
-
-	if len(result.Scenes) == 0 {
-		return nil, fmt.Errorf("LLM 未生成有效的分镜数据")
-	}
-
-	// 兜底：如果 LLM 没生成 overlay，自动生成
-	for i := range result.Scenes {
-		if len(result.Scenes[i].Overlay) == 0 {
-			result.Scenes[i].Overlay = AutoGenerateOverlay(result.Scenes[i].Narration, requirement)
+	for _, term := range financialTerms {
+		if strings.Contains(narration, term) {
+			keywords = append(keywords, term)
 		}
 	}
 
-	utils.LogInfo("LLM split script into %d scenes", len(result.Scenes))
-	return result.Scenes, nil
+	// 构建图片提示词
+	prompt := "professional financial news background, "
+	if len(keywords) > 0 {
+		// 最多取5个关键词
+		if len(keywords) > 5 {
+			keywords = keywords[:5]
+		}
+		prompt += strings.Join(keywords, ", ") + ", "
+	}
+	if len(numbers) > 0 {
+		// 最多取3个数字
+		if len(numbers) > 3 {
+			numbers = numbers[:3]
+		}
+		prompt += "data chart showing " + strings.Join(numbers, ", ") + ", "
+	}
+	prompt += "modern infographic style, cinematic lighting, 4K, high quality"
+
+	return prompt
+}
+
+// SplitScriptToScenes 把长文章按段落切分成多个分镜，保留完整原文内容
+// 视频总时长 = 所有分镜旁白的语音时长之和，自动跟随脚本长度
+func SplitScriptToScenes(script, requirement string, cfg *config.Config) ([]Scene, error) {
+	// 按段落切分，保留完整原文
+	runes := []rune(script)
+	totalLen := len(runes)
+	
+	// 目标：每段约200-300字，最多20个分镜
+	segLen := 250
+	segCount := (totalLen + segLen - 1) / segLen
+	if segCount > 20 {
+		segCount = 20
+		segLen = totalLen / segCount
+	}
+	if segLen < 50 {
+		segLen = 50
+	}
+	
+	scenes := make([]Scene, 0, segCount)
+	for i := 0; i < segCount && i*segLen < totalLen; i++ {
+		start := i * segLen
+		end := start + segLen
+		if end > totalLen {
+			end = totalLen
+		}
+		narration := string(runes[start:end])
+		// 去掉 markdown 标记
+		narration = strings.ReplaceAll(narration, "**", "")
+		narration = strings.ReplaceAll(narration, "##", "")
+		narration = strings.ReplaceAll(narration, "#", "")
+		narration = strings.ReplaceAll(narration, "\n", " ")
+		narration = strings.TrimSpace(narration)
+		if len(narration) < 10 {
+			continue
+		}
+		s := Scene{
+			Narration:   narration,
+			ImagePrompt: GenerateImagePromptFromNarration(narration),
+		}
+		s.Overlay = AutoGenerateOverlay(narration, requirement)
+		scenes = append(scenes, s)
+	}
+	
+	if len(scenes) == 0 {
+		return nil, fmt.Errorf("无法切分脚本")
+	}
+	
+	utils.LogInfo("split script into %d scenes (total %d chars, ~%.0f min video)", len(scenes), totalLen, float64(totalLen)/4.0/60.0)
+	return scenes, nil
 }
