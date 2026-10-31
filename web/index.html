@@ -673,12 +673,15 @@ let lastProgress=-1,lastProgressTime=0;
 function pollTask(tid){
   currentTaskId=tid;
   if(pollTimer)clearInterval(pollTimer);
+  // 根据脚本长度动态计算超时：每1000字给300秒，最少180秒，最多1800秒
+  const scriptLen=(document.getElementById('video_script')?.value||'').length;
+  const dynamicTimeout=Math.max(180,Math.min(1800,Math.ceil(scriptLen/1000)*300))*1000;
   pollTimer=setInterval(async()=>{try{const r=await fetch(API+'/tasks/'+tid);const d=await r.json();const t=d.data;if(!t)return;
-  // 检测进度卡死
+  // 检测进度卡死（动态超时）
   const prog=t.progress||0;
   if(prog!==lastProgress){lastProgress=prog;lastProgressTime=Date.now()}
-  else if(Date.now()-lastProgressTime>90000 && prog<100 && t.state===1){
-    showToast('⚠️ 进度已停滞90秒，可能处理超长内容卡住','error');
+  else if(Date.now()-lastProgressTime>dynamicTimeout && prog<100 && t.state===1){
+    showToast('⚠️ 进度已停滞较长时间，视频可能仍在后台编码中，请耐心等待','warning');
   }
     document.getElementById('current_progress').textContent=(t.progress||0)+'%';document.getElementById('current_progress_bar').style.width=(t.progress||0)+'%';
     const sm={1:'完成','-1':'失败',4:'处理中'},cm={1:'var(--green)','-1':'var(--accent)',4:'var(--blue)'};

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -216,6 +217,17 @@ func hasSubtitlesFilter() bool {
 
 // FinalCompose 最终合成：视频 + 音频 + 字幕 + 背景音乐
 func FinalCompose(videoPath, audioPath, assPath, srtPath, outputPath string, params *models.VideoParams, cfg *config.Config) error {
+	// 获取视频时长，用于动态计算编码超时
+	videoDuration := 60.0 // 默认60秒
+	probeCtx, probeCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer probeCancel()
+	probeCmd := exec.CommandContext(probeCtx, "ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", videoPath)
+	if durBytes, err := probeCmd.Output(); err == nil {
+		if d, err := strconv.ParseFloat(strings.TrimSpace(string(durBytes)), 64); err == nil && d > 0 {
+			videoDuration = d
+			utils.LogInfo("final compose: video duration=%.1fs, timeout=%.0fs", videoDuration, 300+videoDuration*5)
+		}
+	}
 	utils.LogInfo("final composition: video=%s, audio=%s, subtitle=%s", videoPath, audioPath, assPath)
 
 	args := []string{"-y", "-i", videoPath, "-i", audioPath}

@@ -502,7 +502,26 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	// Step 7: 最终合成
 	utils.LogInfo("step 7: final composition...")
 	finalPath := filepath.Join(taskDir, "final.mp4")
+	
+	// 后台更新进度（final compose 耗时较长）
+	progressDone := make(chan bool)
+	go func() {
+		prog := 71
+		for {
+			select {
+			case <-progressDone:
+				return
+			case <-time.After(15 * time.Second):
+				if prog < 89 {
+					save(prog)
+					prog += 3
+				}
+			}
+		}
+	}()
+	
 	err = video.FinalCompose(combinedPath, audioPath, assPath, srtPath, finalPath, params, p.cfg)
+	close(progressDone)
 	if err != nil {
 		result.State = models.TaskStateFailed
 		result.Error = fmt.Sprintf("final composition failed: %v", err)
@@ -558,15 +577,56 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 			utils.LogInfo("using user-provided script with %d scenes", len(scenes))
 			return params.VideoScript, imagePrompts, scenes, nil
 		}
-		// 没有 scenes，用旧模式生成 terms
-		terms := params.VideoTerms
-		if len(terms) == 0 {
-			generatedTerms, err := llm.GenerateTerms(params.VideoScript, p.cfg)
-			if err == nil {
-				terms = generatedTerms
+		// 没有 scenes，用 LLM 把脚本改写成分镜
+		utils.LogInfo("user provided script (%d chars) but no scenes, using LLM to split into scenes...", len(params.VideoScript))
+		scenes := autoSplitScriptToScenes(params.VideoScript, params.VideoRequirement, p.cfg)
+		if len(scenes) > 0 {
+			imagePrompts := make([]string, len(scenes))
+			for i, s := range scenes {
+				imagePrompts[i] = s.ImagePrompt
 			}
+			utils.LogInfo("LLM split user script into %d scenes", len(scenes))
+			return params.VideoScript, imagePrompts, scenes, nil
 		}
-		return params.VideoScript, terms, nil, nil
+		// LLM 分段失败，简单按字数切分成6段
+		utils.LogWarn("LLM split failed, doing simple split into 6 segments")
+		runes := []rune(params.VideoScript)
+		totalLen := len(runes)
+		segLen := totalLen / 6
+		if segLen < 20 {
+			segLen = 20
+		}
+		scenes2 := make([]llm.Scene, 0, 6)
+		for i := 0; i < 6 && i*segLen < totalLen; i++ {
+			start := i * segLen
+			end := start + segLen
+			if end > totalLen {
+				end = totalLen
+			}
+			narration := string(runes[start:end])
+			// 去掉 markdown 标记
+			narration = strings.ReplaceAll(narration, "**", "")
+			narration = strings.ReplaceAll(narration, "#", "")
+			narration = strings.TrimSpace(narration)
+			if len(narration) < 10 {
+				continue
+			}
+			s := llm.Scene{
+				Narration:   narration,
+				ImagePrompt: "financial data visualization, stock market chart, modern infographic, cinematic",
+			}
+			s.Overlay = llm.AutoGenerateOverlay(narration, params.VideoRequirement)
+			scenes2 = append(scenes2, s)
+		}
+		if len(scenes2) > 0 {
+			imagePrompts := make([]string, len(scenes2))
+			for i, s := range scenes2 {
+				imagePrompts[i] = s.ImagePrompt
+			}
+			utils.LogInfo("simple split into %d scenes", len(scenes2))
+			return params.VideoScript, imagePrompts, scenes2, nil
+		}
+		return params.VideoScript, nil, nil, fmt.Errorf("无法处理长文章，请使用AI生成脚本按钮")
 	}
 
 	// 确定分镜数量

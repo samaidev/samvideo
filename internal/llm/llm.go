@@ -248,7 +248,7 @@ func callLLM(prompt string, cfg *config.Config) (string, error) {
 
 	utils.LogInfo("calling LLM: %s, model: %s", url, model)
 
-	client := &http.Client{Timeout: 120 * time.Second}
+	client := &http.Client{Timeout: 300 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("HTTP request: %w", err)
@@ -454,45 +454,21 @@ func SplitScriptToScenes(script, requirement string, cfg *config.Config) ([]Scen
 
 	// 截取前3000字避免 prompt 过长
 	scriptText := script
-	if len([]rune(scriptText)) > 3000 {
-		scriptText = string([]rune(scriptText)[:3000])
+	if len([]rune(scriptText)) > 800 {
+		scriptText = string([]rune(scriptText)[:800])
 	}
 
-	prompt := fmt.Sprintf(`你是一个专业的短视频脚本撰写人。
+	prompt := fmt.Sprintf(`当前时间：%s
 
-当前时间：%s
+请将以下文章改写成6个分镜的短视频脚本。每个分镜旁白约30-50字。
 
-请将以下文章改写成一个6到8个分镜的短视频脚本。保持文章的核心内容和观点，但用口语化的旁白重新表达，每个分镜旁白约30-50字。
+文章：%s
 
-【原始文章】
-%s
+返回JSON：{"scenes":[{"narration":"中文旁白","image_prompt":"英文画面描述","overlay":[{"text":"中文标签","position":"top","color":"yellow","style":"highlight"}]}]}
 
-【核心要求】
-1. 每个分镜包含三个字段：narration（旁白）、image_prompt（画面描述）、overlay（叠加层）
-2. narration：中文旁白，口语化，适合语音朗读，每段约30-50字
-3. image_prompt：英文画面描述，必须与旁白内容直接相关
-4. overlay：数组，每个元素描述一个叠加在画面上的视觉元素
-
-【overlay字段说明】
-- text：要显示的中文文字（关键数据、标签、名称等）
-- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
-- color：颜色，可选值：red/green/white/yellow
-- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
-
-【示例】
-{
-  "narration": "四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。",
-  "image_prompt": "stock market trading floor with large screens showing slight dips, worried investors, cinematic",
-  "overlay": [
-    {"text": "四季度市场展望", "position": "top", "color": "yellow", "style": "highlight"},
-    {"text": "市场情绪谨慎", "position": "bottom", "color": "white", "style": "box"}
-  ]
-}
-
-请以JSON格式返回：
-{"scenes": [{"narration": "...", "image_prompt": "...", "overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}]}
-
-注意：overlay 数组不能为 null，至少包含一个元素。`, now, scriptText)
+overlay的position可选：top/center/bottom/top-left/top-right/bottom-left/bottom-right
+overlay的color可选：red/green/white/yellow
+overlay的style可选：box/highlight/arrow`, now, scriptText)
 
 	if requirement != "" {
 		prompt += "\n\n【视频制作要求】\n" + requirement
