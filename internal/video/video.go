@@ -692,10 +692,20 @@ func ApplyOverlay(inputPath, outputPath string, overlayItems []OverlayItem) erro
 
 // OverlayItem 叠加层元素（video 包用）
 type OverlayItem struct {
-	Text     string `json:"text"`
-	Position string `json:"position"`
-	Color    string `json:"color"`
-	Style    string `json:"style"`
+	Text         string   `json:"text"`
+	Label        string   `json:"label,omitempty"`
+	Position     string   `json:"position,omitempty"`
+	Color        string   `json:"color,omitempty"`
+	Style        string   `json:"style,omitempty"`
+	X            *float64 `json:"x,omitempty"`
+	Y            *float64 `json:"y,omitempty"`
+	Width        *float64 `json:"width,omitempty"`
+	Height       *float64 `json:"height,omitempty"`
+	FontSize     *int     `json:"font_size,omitempty"`
+	BgColor      string   `json:"bg_color,omitempty"`
+	BorderColor  string   `json:"border_color,omitempty"`
+	BorderRadius *int     `json:"border_radius,omitempty"`
+	Align        string   `json:"align,omitempty"`
 }
 
 

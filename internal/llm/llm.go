@@ -23,10 +23,21 @@ type Scene struct {
 
 // OverlayItem 叠加层元素
 type OverlayItem struct {
-	Text     string `json:"text"`      // 显示的文字
-	Position string `json:"position"`  // 位置: top/center/bottom/top-left/top-right/bottom-left/bottom-right
-	Color    string `json:"color"`     // 颜色: red/green/white/yellow
-	Style    string `json:"style"`      // 样式: box(标签框)/highlight(高亮)/arrow(箭头)
+	Text         string `json:"text"`          // 显示的文字
+	Label        string `json:"label"`         // 数据标签（如"GDP增长"）
+	Position     string `json:"position"`      // 保留兼容: top/center/bottom/top-left/top-right/bottom-left/bottom-right
+	Color        string `json:"color"`         // 文字颜色: red/green/white/yellow/blue 或 #RRGGBB
+	Style        string `json:"style"`         // 样式: title/dataline/tag/highlight/card
+	// LLM 布局字段（坐标为画面百分比 0.0~1.0）
+	X            *float64 `json:"x,omitempty"`            // 卡片左上角 X（画面宽度比例）
+	Y            *float64 `json:"y,omitempty"`            // 卡片左上角 Y（画面高度比例）
+	Width        *float64 `json:"width,omitempty"`        // 卡片宽度（画面宽度比例）
+	Height       *float64 `json:"height,omitempty"`       // 卡片高度（画面高度比例）
+	FontSize     *int     `json:"font_size,omitempty"`    // 字体大小（像素）
+	BgColor      string   `json:"bg_color,omitempty"`     // 背景颜色 #RRGGBBAA
+	BorderColor  string   `json:"border_color,omitempty"` // 边框颜色 #RRGGBBAA
+	BorderRadius *int     `json:"border_radius,omitempty"` // 圆角半径（像素）
+	Align        string   `json:"align,omitempty"`        // 文字对齐: left/center/right
 }
 
 // GenerateScriptWithScenes 生成分镜脚本：每段旁白对应一个画面
@@ -328,64 +339,149 @@ func maskKey(key string) string {
 }
 
 
-// autoGenerateOverlay 当 LLM 没有生成 overlay 时，从旁白文本自动提取关键数据生成叠加层
+// AutoGenerateOverlay 从旁白文本自动提取关键数据，生成结构化卡片 overlay
+// 不再碎片化散落，而是生成一个完整的财经数据卡片（标题+数据行+标签）
 func AutoGenerateOverlay(narration, requirement string) []OverlayItem {
 	if narration == "" {
 		return nil
 	}
-	var items []OverlayItem
+	return AutoGenerateOverlayLLM(narration, requirement, nil)
+}
 
-	// 提取数字+%（涨跌幅）
-	rePercent := regexp.MustCompile(`(\d+\.?\d*)\s*%`)
-	matches := rePercent.FindAllStringSubmatch(narration, -1)
-	for _, m := range matches {
+// AutoGenerateOverlayLLM 调用 LLM API 生成 overlay 布局
+// LLM 决定每个元素的坐标(x,y,width,height)、字体大小、颜色、背景色、圆角等
+func AutoGenerateOverlayLLM(narration, requirement string, cfg *config.Config) []OverlayItem {
+	if narration == "" {
+		return nil
+	}
+	if cfg == nil {
+		return fallbackOverlay(narration)
+	}
+
+	// 截取前500字避免 prompt 过长
+	scriptText := narration
+	if len([]rune(scriptText)) > 500 {
+		scriptText = string([]rune(scriptText)[:500])
+	}
+
+	prompt := fmt.Sprintf(`你是一个专业的财经视频画面设计师。请为以下旁白内容设计 overlay 叠加层布局。
+
+画面尺寸：1920x1080 (16:9)
+坐标系统：所有坐标和尺寸用画面比例 (0.0~1.0)，左上角为 (0,0)，右下角为 (1,1)
+
+要求：
+1. 设计一个或多个信息卡片，展示旁白中的关键数据、术语
+2. 卡片位置不要互相覆盖，合理利用画面空间
+3. 标题在卡片顶部，数据行在中间，标签在底部
+4. 涨用红色(#FF4646)，跌用绿色(#3CC850)，中性用白色(#FFFFFF)，金额用黄色(#FFD23C)
+5. 卡片背景用深色半透明(如 #0F192DCC)，圆角 12-16px
+6. 字体大小：标题 36-42px，数据值 28-34px，标签 20-24px
+
+请返回 JSON 数组，每个元素格式：
+{
+  "text": "显示的文字",
+  "label": "数据标签（可选）",
+  "style": "title|dataline|tag|highlight|card",
+  "x": 0.05,           // 卡片左上角X（画面比例）
+  "y": 0.65,           // 卡片左上角Y（画面比例）
+  "width": 0.35,       // 卡片宽度（画面比例）
+  "height": 0.25,      // 卡片高度（画面比例）
+  "font_size": 36,      // 字体大小（像素）
+  "color": "#FFFFFF",   // 文字颜色
+  "bg_color": "#0F192DCC",  // 背景颜色
+  "border_color": "#3C5078", // 边框颜色
+  "border_radius": 14,     // 圆角半径
+  "align": "left"          // 文字对齐: left/center/right
+}
+
+注意：多个元素如果属于同一个卡片，它们的 x/y/width/height 应该相同（作为卡片区域），文字会自动排列在卡片内。
+
+旁白内容：
+%s
+
+只返回 JSON 数组，不要其他文字。`, scriptText)
+
+	resp, err := callLLM(prompt, cfg)
+	if err != nil {
+		utils.LogWarn("LLM overlay generation failed: %v, using fallback", err)
+		return fallbackOverlay(narration)
+	}
+
+	resp = cleanJSONResponse(resp)
+	var items []OverlayItem
+	if err := json.Unmarshal([]byte(resp), &items); err != nil {
+		utils.LogWarn("LLM overlay JSON parse failed: %v, using fallback", err)
+		return fallbackOverlay(narration)
+	}
+
+	utils.LogInfo("LLM generated %d overlay items", len(items))
+	return items
+}
+
+// fallbackOverlay 当 LLM 不可用时的简单兜底
+func fallbackOverlay(narration string) []OverlayItem {
+	runes := []rune(narration)
+	title := string(runes)
+	if len(runes) > 18 {
+		title = string(runes[:18])
+	}
+	title = strings.TrimRight(title, "。，！？、：；,.!?;:")
+
+	// 简单提取百分比
+	rePercent := regexp.MustCompile(`(\d+\.?\d*)\s*%%`)
+	percentMatches := rePercent.FindAllStringSubmatch(narration, -1)
+
+	items := []OverlayItem{{
+		Text:     title,
+		Position: "bottom-left",
+		Color:    "white",
+		Style:    "title",
+	}}
+
+	for _, m := range percentMatches {
 		num := m[1]
 		f, _ := strconv.ParseFloat(num, 64)
 		color := "white"
-		style := "highlight"
-		if strings.Contains(requirement, "涨") && strings.Contains(requirement, "红") {
-			if f > 0 {
-				color = "red"
-			} else {
-				color = "green"
-			}
+		if f > 0 {
+			color = "red"
+		} else if f < 0 {
+			color = "green"
 		}
 		items = append(items, OverlayItem{
-			Text:     num + "%",
-			Position: "top-right",
+			Text:     num + "%%",
+			Label:    extractDataLabel(narration, num+"%%"),
+			Position: "bottom-left",
 			Color:    color,
-			Style:    style,
-		})
-	}
-
-	// 提取数字+亿/万（金额数据）
-	reMoney := regexp.MustCompile(`(\d+\.?\d*)\s*(亿|万)`)
-	matches = reMoney.FindAllStringSubmatch(narration, -1)
-	for _, m := range matches {
-		items = append(items, OverlayItem{
-			Text:     m[0],
-			Position: "bottom-right",
-			Color:    "yellow",
-			Style:    "box",
-		})
-	}
-
-	// 如果没有提取到任何数据，至少加一个标题 overlay
-	if len(items) == 0 {
-		// 取旁白前10个字作为标题
-		title := narration
-		if len([]rune(title)) > 12 {
-			title = string([]rune(title)[:12])
-		}
-		items = append(items, OverlayItem{
-			Text:     title,
-			Position: "top",
-			Color:    "white",
-			Style:    "box",
+			Style:    "dataline",
 		})
 	}
 
 	return items
+}
+
+// extractDataLabel 从旁白中提取数字前后的关键词作为数据标签
+func extractDataLabel(narration, dataStr string) string {
+	idx := strings.Index(narration, dataStr)
+	if idx < 0 {
+		return ""
+	}
+	// 取数字前面2-6个字作为标签
+	start := idx
+	runeStart := len([]rune(narration[:start]))
+	runes := []rune(narration)
+	labelStart := runeStart - 8
+	if labelStart < 0 {
+		labelStart = 0
+	}
+	label := string(runes[labelStart:runeStart])
+	// 去掉标点和空格
+	label = strings.TrimSpace(label)
+	label = strings.Trim(label, ".,!?;: 。！？、：；“”‘’「」【】()（）")
+	// 如果太长，截取最后4个字
+	if len([]rune(label)) > 6 {
+		label = string([]rune(label)[len([]rune(label))-6:])
+	}
+	return label
 }
 
 
@@ -435,12 +531,12 @@ overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","sty
 	}
 	if err := json.Unmarshal([]byte(resp), &result); err != nil {
 		utils.LogWarn("failed to parse overlay JSON for scene %d: %v, using auto fallback", sceneIndex+1, err)
-		return AutoGenerateOverlay(narration, requirement), nil
+		return AutoGenerateOverlayLLM(narration, requirement, cfg), nil
 	}
 
 	if len(result.Overlay) == 0 {
 		utils.LogInfo("LLM returned empty overlay for scene %d, using auto fallback", sceneIndex+1)
-		return AutoGenerateOverlay(narration, requirement), nil
+		return AutoGenerateOverlayLLM(narration, requirement, cfg), nil
 	}
 
 	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(result.Overlay), sceneIndex+1)
@@ -535,7 +631,7 @@ func SplitScriptToScenes(script, requirement string, cfg *config.Config) ([]Scen
 			Narration:   narration,
 			ImagePrompt: GenerateImagePromptFromNarration(narration),
 		}
-		s.Overlay = AutoGenerateOverlay(narration, requirement)
+		s.Overlay = AutoGenerateOverlayLLM(narration, requirement, cfg)
 		scenes = append(scenes, s)
 	}
 	

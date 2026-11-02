@@ -87,8 +87,18 @@ type SceneData struct {
 
 // OverlayItemData 叠加层元素（前端传入）
 type OverlayItemData struct {
-	Text     string `json:"text"`
-	Position string `json:"position"`
-	Color    string `json:"color"`
-	Style    string `json:"style"`
+	Text         string  `json:"text"`
+	Label        string  `json:"label"`
+	Position     string  `json:"position"`
+	Color        string  `json:"color"`
+	Style        string  `json:"style"`
+	X            *float64 `json:"x,omitempty"`
+	Y            *float64 `json:"y,omitempty"`
+	Width        *float64 `json:"width,omitempty"`
+	Height       *float64 `json:"height,omitempty"`
+	FontSize     *int     `json:"font_size,omitempty"`
+	BgColor      string  `json:"bg_color,omitempty"`
+	BorderColor  string  `json:"border_color,omitempty"`
+	BorderRadius *int     `json:"border_radius,omitempty"`
+	Align        string  `json:"align,omitempty"`
 }

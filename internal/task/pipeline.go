@@ -401,7 +401,7 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 			overlayItems, err := llm.GenerateOverlayForScene(narration, params.VideoRequirement, i, p.cfg)
 			if err != nil {
 				utils.LogWarn("overlay generation failed for scene %d: %v, using auto fallback", i+1, err)
-				overlayItems = llm.AutoGenerateOverlay(narration, params.VideoRequirement)
+				overlayItems = llm.AutoGenerateOverlayLLM(narration, params.VideoRequirement, p.cfg)
 			}
 			if len(overlayItems) == 0 {
 				continue
@@ -410,10 +410,20 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 			voItems := make([]video.OverlayItem, len(overlayItems))
 			for j, oi := range overlayItems {
 				voItems[j] = video.OverlayItem{
-					Text:     oi.Text,
-					Position: oi.Position,
-					Color:    oi.Color,
-					Style:    oi.Style,
+					Text:         oi.Text,
+					Label:        oi.Label,
+					Position:     oi.Position,
+					Color:        oi.Color,
+					Style:        oi.Style,
+					X:            oi.X,
+					Y:            oi.Y,
+					Width:        oi.Width,
+					Height:       oi.Height,
+					FontSize:     oi.FontSize,
+					BgColor:      oi.BgColor,
+					BorderColor:  oi.BorderColor,
+					BorderRadius: oi.BorderRadius,
+					Align:        oi.Align,
 				}
 			}
 			if err := video.ApplyOverlayToImage(imgPath, overlayedPath, voItems); err != nil {
@@ -459,40 +469,8 @@ func (p *Pipeline) runSceneAlignedPipeline(taskID, taskDir string, params *model
 	}
 	save(60)
 
-	// Step 5.5: 叠加 overlay 层（半透明遮罩/高亮文字/箭头）
-	if params.VideoRequirement != "" {
-		utils.LogInfo("step 5.5: applying overlay layers to clips...")
-		var overlayedClips []string
-		for i, clipPath := range clipPaths {
-			sceneIdx := i
-			if sceneIdx >= len(scenes) {
-				sceneIdx = len(scenes) - 1
-			}
-			overlayItems := scenes[sceneIdx].Overlay
-			if len(overlayItems) == 0 {
-				overlayedClips = append(overlayedClips, clipPath)
-				continue
-			}
-			overlayedPath := filepath.Join(taskDir, fmt.Sprintf("clip_%03d_overlay.mp4", i))
-			voItems := make([]video.OverlayItem, len(overlayItems))
-			for j, oi := range overlayItems {
-				voItems[j] = video.OverlayItem{
-					Text:     oi.Text,
-					Position: oi.Position,
-					Color:    oi.Color,
-					Style:    oi.Style,
-				}
-			}
-			if err := video.ApplyOverlay(clipPath, overlayedPath, voItems); err != nil {
-				utils.LogWarn("overlay failed for clip %d: %v, using original", i+1, err)
-				overlayedClips = append(overlayedClips, clipPath)
-			} else {
-				overlayedClips = append(overlayedClips, overlayedPath)
-			}
-		}
-		clipPaths = overlayedClips
-		utils.LogInfo("overlay applied to %d clips", len(clipPaths))
-	}
+	// Step 5.5: overlay 已在 Step 4.5（图片阶段）完成，无需重复绘制
+	// 之前在这里重复画 overlay 导致重影问题，现已移除
 
 	if p.isCancelled(taskID) {
 		return nil, fmt.Errorf("任务已取消")
@@ -638,7 +616,7 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 				Narration:   narration,
 				ImagePrompt: llm.GenerateImagePromptFromNarration(narration),
 			}
-			s.Overlay = llm.AutoGenerateOverlay(narration, params.VideoRequirement)
+			s.Overlay = llm.AutoGenerateOverlayLLM(narration, params.VideoRequirement, p.cfg)
 			scenes2 = append(scenes2, s)
 		}
 		if len(scenes2) > 0 {
@@ -689,7 +667,7 @@ func (p *Pipeline) generateScriptWithScenes(params *models.VideoParams, tmpl *te
 				utils.LogInfo("  scene %d: %d overlay items (from frontend)", i+1, len(ss.Overlay))
 			} else if params.VideoRequirement != "" {
 				// 前端没传 overlay，用 LLM 兜底生成
-				scenes[i].Overlay = llm.AutoGenerateOverlay(ss.Narration, params.VideoRequirement)
+				scenes[i].Overlay = llm.AutoGenerateOverlayLLM(ss.Narration, params.VideoRequirement, p.cfg)
 				if len(scenes[i].Overlay) > 0 {
 					utils.LogInfo("  scene %d: %d overlay items (auto-generated)", i+1, len(scenes[i].Overlay))
 				}
