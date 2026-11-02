@@ -305,15 +305,37 @@ func cleanJSONResponse(s string) string {
 		}
 		s = strings.Join(clean, "\n")
 	}
-	// 如果 JSON 被嵌套在文字中，尝试提取
-	if !strings.HasPrefix(s, "{") {
-		start := strings.Index(s, "{")
-		end := strings.LastIndex(s, "}")
-		if start >= 0 && end > start {
-			s = s[start : end+1]
+	s = strings.TrimSpace(s)
+	// 尝试数组格式 [...]
+	if strings.HasPrefix(s, "[") {
+		end := strings.LastIndex(s, "]")
+		if end > 0 {
+			return s[:end+1]
 		}
 	}
-	return strings.TrimSpace(s)
+	// 如果是单个对象 {...}，包装成数组
+	if strings.HasPrefix(s, "{") {
+		end := strings.LastIndex(s, "}")
+		if end > 0 {
+			obj := s[:end+1]
+			return "[" + obj + "]"
+		}
+	}
+	// JSON 被嵌套在文字中，尝试提取数组
+	if arrStart := strings.Index(s, "["); arrStart >= 0 {
+		arrEnd := strings.LastIndex(s, "]")
+		if arrEnd > arrStart {
+			return s[arrStart : arrEnd+1]
+		}
+	}
+	// 尝试提取对象
+	if objStart := strings.Index(s, "{"); objStart >= 0 {
+		objEnd := strings.LastIndex(s, "}")
+		if objEnd > objStart {
+			return "[" + s[objStart:objEnd+1] + "]"
+		}
+	}
+	return s
 }
 
 // generateDefaultTerms 生成默认搜索关键词
@@ -399,7 +421,7 @@ func AutoGenerateOverlayLLM(narration, requirement string, cfg *config.Config) [
 旁白内容：
 %s
 
-只返回 JSON 数组，不要其他文字。`, scriptText)
+重要：只返回 JSON 数组格式 [...]，不要返回单个对象，不要在 JSON 前后加任何文字说明。`, scriptText)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
@@ -526,21 +548,20 @@ overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","sty
 
 	resp = cleanJSONResponse(resp)
 
-	var result struct {
-		Overlay []OverlayItem `json:"overlay"`
-	}
-	if err := json.Unmarshal([]byte(resp), &result); err != nil {
+	// LLM 返回的是裸数组 [...]，直接解析
+	var items []OverlayItem
+	if err := json.Unmarshal([]byte(resp), &items); err != nil {
 		utils.LogWarn("failed to parse overlay JSON for scene %d: %v, using auto fallback", sceneIndex+1, err)
 		return AutoGenerateOverlayLLM(narration, requirement, cfg), nil
 	}
 
-	if len(result.Overlay) == 0 {
+	if len(items) == 0 {
 		utils.LogInfo("LLM returned empty overlay for scene %d, using auto fallback", sceneIndex+1)
 		return AutoGenerateOverlayLLM(narration, requirement, cfg), nil
 	}
 
-	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(result.Overlay), sceneIndex+1)
-	return result.Overlay, nil
+	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(items), sceneIndex+1)
+	return items, nil
 }
 
 
