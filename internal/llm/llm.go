@@ -386,42 +386,31 @@ func AutoGenerateOverlayLLM(narration, requirement string, cfg *config.Config) [
 		scriptText = string([]rune(scriptText)[:500])
 	}
 
-	prompt := fmt.Sprintf(`你是一个专业的财经视频画面设计师。请为以下旁白内容设计 overlay 叠加层布局。
+	prompt := fmt.Sprintf(`你是专业财经视频画面设计师。为以下旁白设计 overlay 叠加层。
 
 画面尺寸：1920x1080 (16:9)
-坐标系统：所有坐标和尺寸用画面比例 (0.0~1.0)，左上角为 (0,0)，右下角为 (1,1)
+坐标系统：0.0~1.0，左上角(0,0)，右下角(1,1)
 
-要求：
-1. 设计一个或多个信息卡片，展示旁白中的关键数据、术语
-2. 卡片位置不要互相覆盖，合理利用画面空间
-3. 标题在卡片顶部，数据行在中间，标签在底部
-4. 涨用红色(#FF4646)，跌用绿色(#3CC850)，中性用白色(#FFFFFF)，金额用黄色(#FFD23C)
-5. 卡片背景用深色半透明(如 #0F192DCC)，圆角 12-16px
-6. 字体大小：标题 36-42px，数据值 28-34px，标签 20-24px
+严格规则：
+1. 最多只设计 2 个卡片（通常 1 个主卡片即可，最多加 1 个辅助小卡片）
+2. 主卡片放在左下角或右下角，辅助卡片放在对侧（不要互相覆盖）
+3. 每个卡片包含：1个标题(title) + 1-3个数据行(dataline) + 0-2个标签(tag)
+4. 同一个卡片的所有元素必须使用相同的 x/y/width/height
+5. 涨用红色(#FF4646)，跌用绿色(#3CC850)，金额用黄色(#FFD23C)
+6. 卡片背景深色半透明 #0F192DCC，圆角14px
+7. 字体大小：标题36px，数据值30px，标签22px
 
-请返回 JSON 数组，每个元素格式：
-{
-  "text": "显示的文字",
-  "label": "数据标签（可选）",
-  "style": "title|dataline|tag|highlight|card",
-  "x": 0.05,           // 卡片左上角X（画面比例）
-  "y": 0.65,           // 卡片左上角Y（画面比例）
-  "width": 0.35,       // 卡片宽度（画面比例）
-  "height": 0.25,      // 卡片高度（画面比例）
-  "font_size": 36,      // 字体大小（像素）
-  "color": "#FFFFFF",   // 文字颜色
-  "bg_color": "#0F192DCC",  // 背景颜色
-  "border_color": "#3C5078", // 边框颜色
-  "border_radius": 14,     // 圆角半径
-  "align": "left"          // 文字对齐: left/center/right
-}
+推荐布局：
+- 单卡片：x=0.03, y=0.65, width=0.40, height=0.30（左下角）
+- 双卡片：主卡 x=0.03,y=0.60,w=0.35,h=0.35；辅助卡 x=0.65,y=0.65,w=0.32,h=0.25
 
-注意：多个元素如果属于同一个卡片，它们的 x/y/width/height 应该相同（作为卡片区域），文字会自动排列在卡片内。
+JSON 数组格式，每个元素：
+{"text":"显示文字","label":"数据标签","style":"title|dataline|tag","x":0.03,"y":0.65,"width":0.40,"height":0.30,"font_size":36,"color":"#FFFFFF","bg_color":"#0F192DCC","border_color":"#3C5078","border_radius":14,"align":"left"}
 
 旁白内容：
 %s
 
-重要：只返回 JSON 数组格式 [...]，不要返回单个对象，不要在 JSON 前后加任何文字说明。`, scriptText)
+只返回 JSON 数组 [...]，最多2个卡片的元素（约4-8个元素），不要超过。`, scriptText)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
@@ -436,8 +425,38 @@ func AutoGenerateOverlayLLM(narration, requirement string, cfg *config.Config) [
 		return fallbackOverlay(narration)
 	}
 
-	utils.LogInfo("LLM generated %d overlay items", len(items))
+	// 按卡片区域分组，最多保留2个卡片
+	cardMap := map[string][]OverlayItem{}
+	cardOrder := []string{}
+	for _, item := range items {
+		if item.X != nil && item.Y != nil {
+			key := fmt.Sprintf("%.3f_%.3f_%.3f_%.3f", *item.X, *item.Y, ptrFloat(item.Width), ptrFloat(item.Height))
+			if _, ok := cardMap[key]; !ok {
+				cardOrder = append(cardOrder, key)
+			}
+			cardMap[key] = append(cardMap[key], item)
+		}
+	}
+	// 最多保留2个卡片
+	if len(cardOrder) > 2 {
+		utils.LogInfo("LLM overlay: trimming from %d cards to 2", len(cardOrder))
+		cardOrder = cardOrder[:2]
+	}
+	// 重建 items
+	items = items[:0]
+	for _, key := range cardOrder {
+		items = append(items, cardMap[key]...)
+	}
+
+	utils.LogInfo("LLM generated %d overlay items (%d cards)", len(items), len(cardOrder))
 	return items
+}
+
+func ptrFloat(p *float64) float64 {
+	if p == nil {
+		return 0
+	}
+	return *p
 }
 
 // fallbackOverlay 当 LLM 不可用时的简单兜底
@@ -514,32 +533,52 @@ func GenerateOverlayForScene(narration, requirement string, sceneIndex int, cfg 
 		return nil, nil
 	}
 
-	prompt := fmt.Sprintf(`你是一个视频后期制作师。现在有一段视频分镜，你需要为它设计叠加层（overlay）。
+	// 截取前500字避免 prompt 过长
+	scriptText := narration
+	if len([]rune(scriptText)) > 500 {
+		scriptText = string([]rune(scriptText)[:500])
+	}
 
-【分镜旁白】
+	prompt := fmt.Sprintf(`你是一个专业的财经视频画面设计师。请为以下旁白内容设计 overlay 叠加层布局。
+
+画面尺寸：1920x1080 (16:9)
+坐标系统：所有坐标和尺寸用画面比例 (0.0~1.0)，左上角为 (0,0)，右下角为 (1,1)
+
+要求：
+1. 最多只设计2个信息卡片，通常1个即可
+2. 卡片位置不要互相覆盖，合理利用画面空间
+3. 标题在卡片顶部，数据行在中间，标签在底部
+4. 涨用红色(#FF4646)，跌用绿色(#3CC850)，中性用白色(#FFFFFF)，金额用黄色(#FFD23C)
+5. 卡片背景用深色半透明(如 #0F192DCC)，圆角 12-16px
+6. 字体大小：标题 36-42px，数据值 28-34px，标签 20-24px
+
+推荐布局：
+- 单卡片：左下角 x=0.03, y=0.65, width=0.40, height=0.30
+- 双卡片：左下角 x=0.03, y=0.65, width=0.35, height=0.30 + 右上角 x=0.65, y=0.05, width=0.30, height=0.20
+
+请返回 JSON 数组，每个元素格式：
+{
+  "text": "显示的文字",
+  "label": "数据标签（可选）",
+  "style": "title|dataline|tag|highlight",
+  "x": 0.03,
+  "y": 0.65,
+  "width": 0.40,
+  "height": 0.30,
+  "font_size": 36,
+  "color": "#FFFFFF",
+  "bg_color": "#0F192DCC",
+  "border_color": "#3C5078",
+  "border_radius": 14,
+  "align": "left"
+}
+
+注意：同一卡片内的多个元素（标题、数据行、标签）应该使用相同的 x/y/width/height，它们会自动排列在卡片内。
+
+旁白内容：
 %s
 
-【视频制作要求】
-%s
-
-【你的任务】
-根据旁白内容和制作要求，为这个分镜设计1-3个叠加层元素。叠加层是在画面上后期合成的半透明遮罩层、高亮文字、箭头标注等。
-
-【overlay字段说明】
-- text：要显示的中文文字（从旁白中提取关键数据、名称、标签等）
-- position：位置，可选值：top/center/bottom/top-left/top-right/bottom-left/bottom-right
-- color：颜色，可选值：red/green/white/yellow
-- style：样式，可选值：box(半透明标签框)/highlight(高亮大字)/arrow(箭头标注)
-
-【示例】
-旁白"四季度开局，市场情绪略显谨慎，投资者都在问年底行情在哪里。"
-要求"涨用红色跌用绿色标注"
-overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","style":"highlight"},{"text":"市场情绪谨慎","position":"bottom","color":"white","style":"box"}]
-
-请以JSON格式返回：
-{"overlay": [{"text": "...", "position": "...", "color": "...", "style": "..."}]}
-
-注意：只返回JSON，不要其他文字。`, narration, requirement)
+重要：只返回 JSON 数组格式 [...]，不要返回单个对象，不要在 JSON 前后加任何文字说明。`, scriptText)
 
 	resp, err := callLLM(prompt, cfg)
 	if err != nil {
@@ -560,9 +599,46 @@ overlay: [{"text":"四季度市场展望","position":"top","color":"yellow","sty
 		return AutoGenerateOverlayLLM(narration, requirement, cfg), nil
 	}
 
+	// 按卡片区域分组，限制最多2个卡片
+	cardKeys := map[string]bool{}
+	for i := range items {
+		if items[i].X != nil && items[i].Y != nil {
+			key := fmt.Sprintf("%.3f_%.3f_%.3f_%.3f", *items[i].X, *items[i].Y, ptrFloat(items[i].Width), ptrFloat(items[i].Height))
+			cardKeys[key] = true
+		}
+	}
+	if len(cardKeys) > 2 {
+		utils.LogInfo("trimming overlay from %d cards to 2 for scene %d", len(cardKeys), sceneIndex+1)
+		// 只保留前2个卡片的元素
+		keepKeys := make([]string, 0, 2)
+		for k := range cardKeys {
+			keepKeys = append(keepKeys, k)
+			if len(keepKeys) >= 2 {
+				break
+			}
+		}
+		keepSet := map[string]bool{}
+		for _, k := range keepKeys {
+			keepSet[k] = true
+		}
+		var trimmed []OverlayItem
+		for _, item := range items {
+			if item.X != nil && item.Y != nil {
+				key := fmt.Sprintf("%.3f_%.3f_%.3f_%.3f", *item.X, *item.Y, ptrFloat(item.Width), ptrFloat(item.Height))
+				if keepSet[key] {
+					trimmed = append(trimmed, item)
+				}
+			} else {
+				trimmed = append(trimmed, item)
+			}
+		}
+		items = trimmed
+	}
+
 	utils.LogInfo("LLM generated %d overlay items for scene %d (post-production)", len(items), sceneIndex+1)
 	return items, nil
 }
+
 
 
 // GenerateImagePromptFromNarration 根据旁白内容提取关键词生成图片提示词
